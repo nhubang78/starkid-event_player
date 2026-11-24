@@ -200,15 +200,15 @@ class PlaylistView(QTreeWidget):
                 continue
             mark, color, bold = "", None, False
             if tid == playing_id:
-                mark, color, bold = ("⏸" if paused else "▶"), "#4ade80", True
+                mark, color, bold = ("⏸" if paused else "▶"), "#15803d", True
             elif tid == cued_id:
-                mark, color = "⏭", "#facc15"
+                mark, color = "⏭", "#b45309"
             elif tid == next_id:
                 mark = "›"
             if t.missing:
-                color = "#f87171"
+                color = "#dc2626"
             elif color is None and t.played:
-                color = "#6b7280"
+                color = "#9ca3af"
             if t.stop_after:
                 mark += "⏹"
             it.setText(0, mark)

@@ -44,6 +44,7 @@ class ChannelStrip(QWidget):
         self.fade_in = False
         self.duration = 0
         self._last_times = None
+        self.last_levels = [0.0, 0.0]
         self.setAcceptDrops(True)
 
         root = QVBoxLayout(self)
@@ -196,7 +197,8 @@ class ChannelStrip(QWidget):
         self.cart.update()
 
     def tick(self):
-        self.meter.set_levels(self.deck.take_levels())
+        self.last_levels = self.deck.take_levels()
+        self.meter.set_levels(self.last_levels)
         if not (self.deck.is_playing() or self.deck.is_paused()):
             return
         pos, dur = self.deck.position(), self.deck.duration() or self.duration

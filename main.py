@@ -1,882 +1,756 @@
-"""EventPlayer — phần mềm phát nhạc sự kiện cho Windows."""
+"""EventPlayer — phần mềm phát nhạc sự kiện cho Windows (bảng 32 kênh + playlist)."""
 import json
 import os
-import subprocess
 import sys
 
-from PySide6.QtCore import QSettings, QStandardPaths, Qt, QTime, QTimer, Signal
-from PySide6.QtGui import QAction, QKeySequence, QShortcut
-from PySide6.QtWidgets import (QApplication, QComboBox, QDialog, QDialogButtonBox, QFileDialog,
-                               QFormLayout, QFrame, QGridLayout, QHBoxLayout, QInputDialog,
-                               QLabel, QMainWindow, QMenu, QMessageBox, QPushButton, QSlider,
-                               QSpinBox, QSplitter, QStyle, QTabWidget, QToolButton, QVBoxLayout,
+from PySide6.QtCore import QSettings, QSize, QStandardPaths, Qt, QTime, QTimer
+from PySide6.QtGui import QActionGroup, QFont, QKeySequence, QShortcut
+from PySide6.QtWidgets import (QApplication, QButtonGroup, QComboBox, QDialog, QDialogButtonBox,
+                               QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout,
+                               QInputDialog, QLabel, QMainWindow, QMenu, QMessageBox, QPushButton,
+                               QSizePolicy, QSpinBox, QStackedWidget, QToolButton, QVBoxLayout,
                                QWidget)
 from PySide6.QtMultimedia import QMediaDevices
 
 from audio import Deck, find_output_device
-from pads import PadPanel
-from playlist import AUDIO_FILTER, PlaylistView, fmt_ms
+from channel import ChannelStrip, hms
+from playlist_page import PlaylistPage
+from widgets import Fader, VUMeter, glyph_icon, shape_icon
 
 APP_NAME = "EventPlayer"
-APP_TITLE = "EventPlayer — Phát nhạc sự kiện"
-
-MODES = [("stop", "Dừng sau mỗi bài (chế độ sự kiện)"),
-         ("continuous", "Phát liên tục"),
-         ("repeat_one", "Lặp lại 1 bài"),
-         ("repeat_all", "Lặp lại cả danh sách")]
+VERSION = "2.0"
+PROJECT_EXT = ".evp"
+CHANNELS = 32
+HOTKEYS = (list("12345678") + ["9", "0", "Q", "W", "E", "R", "T", "Y"]
+           + list("UIOPASDFGHJKLZXC"))
 
 DEFAULT_CFG = {
-    "main_device": "", "pre_device": "", "pad_device": "",
-    "fade_in_ms": 0, "fade_out_ms": 3000, "pause_fade_ms": 200,
-    "warn_sec": 10, "duck_pct": 35,
+    "cart_device": "", "main_device": "", "pre_device": "",
+    "cart_fade_in_ms": 2000, "cart_fade_out_ms": 3000, "single_fade_ms": 1000,
+    "fade_in_ms": 0, "fade_out_ms": 3000, "pause_fade_ms": 200, "warn_sec": 10,
 }
 
 STYLE = """
-QWidget { background:#111827; color:#e5e7eb; font-size:10pt; }
-QFrame#nowPlaying { background:#0b1220; border:1px solid #1f2937; border-radius:8px; }
-QLabel#bigTitle { font-size:20pt; font-weight:700; color:#f9fafb; background:transparent; }
-QLabel#artist { font-size:12pt; color:#9ca3af; background:transparent; }
-QLabel#timeBig { font-size:30pt; font-weight:700; font-family:Consolas; background:transparent; }
-QLabel#clock { font-size:16pt; font-family:Consolas; color:#93c5fd; background:transparent; }
-QLabel#next { font-size:11pt; color:#facc15; background:transparent; }
-QLabel#sectionTitle { font-weight:700; color:#9ca3af; letter-spacing:1px; }
-QPushButton { background:#1f2937; border:1px solid #374151; border-radius:6px; padding:6px 12px; }
-QPushButton:hover { background:#273449; }
-QPushButton#transport { font-size:13pt; font-weight:700; min-width:96px; min-height:40px; }
-QPushButton#playBtn { background:#166534; border-color:#22c55e; }
-QPushButton#stopBtn { background:#7f1d1d; border-color:#ef4444; }
-QPushButton#preBtn:checked { background:#1e3a8a; border-color:#60a5fa; }
-QTreeWidget { background:#0f172a; alternate-background-color:#131c31; border:1px solid #1f2937; }
+QMainWindow, QWidget { background:#ececec; color:#1f1f1f; font-family:'Segoe UI'; font-size:10pt; }
+QMenuBar { background:#ffffff; }
+QMenuBar::item:selected, QMenu::item:selected { background:#dbeafe; color:#111; }
+QMenu { background:#ffffff; border:1px solid #cfcfcf; }
+QWidget#toolbar { background:#f5f5f5; border-bottom:1px solid #dcdcdc; }
+QToolButton#tool { background:transparent; border:none; border-radius:6px; padding:4px 10px;
+                   font-size:10.5pt; color:#333; }
+QToolButton#tool:hover { background:#e4e4e4; }
+QToolButton#tool:checked { background:#dcdcdc; color:#1d4ed8; }
+QToolButton#tool[accent="true"]:checked { background:#2563eb; color:white; }
+QLabel#pathBar { background:#f5f5f5; padding:3px 12px; color:#333; border-bottom:1px solid #e0e0e0; }
+QLabel#chHead { padding-left:12px; color:#222; }
+QFrame#strip { background:#e2e2e2; border:1px solid #d2d2d2; border-radius:5px; }
+QFrame#strip QLabel { background:transparent; }
+QLabel#level { color:#666; font-size:9pt; }
+QLabel#time { color:#111; font-size:10.5pt; }
+QLabel#time[dim="true"], QLabel#level[dim="true"] { color:#a8a8a8; }
+QSlider { background:transparent; }
+QToolButton#more { background:#ffffff; border:1px solid #cfcfcf; border-radius:4px; font-size:7pt;
+                   min-width:24px; min-height:20px; }
+QPushButton#chBtn { background:#ffffff; border:1px solid #cfcfcf; border-radius:4px; padding:3px; }
+QPushButton#chBtn:hover { background:#f3f4f6; }
+QPushButton#chBtn:disabled { color:#b5b5b5; background:#f2f2f2; }
+QPushButton#chBtn[active="true"] { background:#fde68a; }
+QToolButton#chIcon { border:none; background:transparent; padding:1px; }
+QToolButton#chIcon:hover { background:#d6d6d6; border-radius:3px; }
+QSlider::groove:vertical { width:4px; background:#a3a3a3; border-radius:2px; }
+QSlider::handle:vertical { height:16px; width:28px; margin:0 -12px; border-radius:3px;
+    border:1px solid #8a8a8a;
+    background:qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #ffffff, stop:0.45 #e9e9e9,
+                               stop:0.5 #7a7a7a, stop:0.55 #e9e9e9, stop:1 #d4d4d4); }
+QSlider::groove:horizontal { height:4px; background:#c4c4c4; border-radius:2px; }
+QSlider::sub-page:horizontal { background:#9ca3af; border-radius:2px; }
+QSlider::handle:horizontal { width:14px; height:14px; margin:-6px 0; border-radius:8px;
+                             background:#ffffff; border:1px solid #8a8a8a; }
+QPushButton#go { background:#fff176; border:1px solid #e0cf3a; border-radius:4px; font-size:13pt;
+                 font-weight:600; min-height:66px; }
+QPushButton#go:hover { background:#ffee58; }
+QPushButton#go:pressed { background:#fdd835; }
+QFrame#nowPlaying { background:#ffffff; border:1px solid #d6d6d6; border-radius:6px; }
+QFrame#nowPlaying QLabel { background:transparent; }
+QLabel#bigTitle { font-size:20pt; font-weight:700; }
+QLabel#artist { font-size:12pt; color:#6b7280; }
+QLabel#timeBig { font-size:28pt; font-weight:700; font-family:Consolas; }
+QLabel#next { font-size:11pt; color:#a16207; }
+QPushButton { background:#ffffff; border:1px solid #cfcfcf; border-radius:5px; padding:5px 12px; }
+QPushButton:hover { background:#f3f4f6; }
+QPushButton#transport { font-size:12pt; font-weight:700; min-width:70px; min-height:36px; padding:5px 16px; }
+QTreeWidget { background:#ffffff; alternate-background-color:#f7f7f7; border:1px solid #d6d6d6; }
 QTreeWidget::item { padding:3px; }
-QTreeWidget::item:selected { background:#1d4ed8; color:white; }
-QHeaderView::section { background:#1f2937; color:#9ca3af; border:none; padding:4px; }
-QTabWidget::pane { border:1px solid #1f2937; }
-QTabBar::tab { background:#1f2937; padding:6px 14px; border-top-left-radius:6px; border-top-right-radius:6px; margin-right:2px; }
-QTabBar::tab:selected { background:#2563eb; color:white; }
-QSlider::groove:horizontal { height:8px; background:#374151; border-radius:4px; }
-QSlider::sub-page:horizontal { background:#22c55e; border-radius:4px; }
-QSlider::handle:horizontal { background:#e5e7eb; width:14px; margin:-4px 0; border-radius:7px; }
-QComboBox, QSpinBox { background:#1f2937; border:1px solid #374151; border-radius:4px; padding:3px 6px; }
-QMenu { background:#1f2937; border:1px solid #374151; }
-QMenu::item:selected { background:#2563eb; }
-QStatusBar { color:#9ca3af; }
+QTreeWidget::item:selected { background:#2563eb; color:white; }
+QHeaderView::section { background:#f1f1f1; border:none; border-bottom:1px solid #ddd; padding:4px; }
+QTabWidget::pane { border:1px solid #d6d6d6; }
+QTabBar::tab { background:#e2e2e2; padding:6px 14px; border-top-left-radius:5px;
+               border-top-right-radius:5px; margin-right:2px; }
+QTabBar::tab:selected { background:#ffffff; color:#1d4ed8; }
+QComboBox, QSpinBox { background:#ffffff; border:1px solid #cfcfcf; border-radius:4px; padding:3px 6px; }
+QStatusBar { background:#f5f5f5; color:#555; }
 """
 
 
-class SeekSlider(QSlider):
-    seekRequested = Signal(int)
-
-    def __init__(self):
-        super().__init__(Qt.Orientation.Horizontal)
-        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.sliderReleased.connect(lambda: self.seekRequested.emit(self.value()))
-
-    def mousePressEvent(self, e):
-        if e.button() == Qt.MouseButton.LeftButton:
-            val = QStyle.sliderValueFromPosition(self.minimum(), self.maximum(),
-                                                 int(e.position().x()), self.width())
-            self.setValue(val)
-            self.seekRequested.emit(val)
-        super().mousePressEvent(e)
-
-
+# ======================================================================
 class SettingsDialog(QDialog):
     def __init__(self, parent, cfg):
         super().__init__(parent)
-        self.setWindowTitle("Cài đặt")
-        self.setMinimumWidth(460)
+        self.setWindowTitle("Tùy chọn")
+        self.setMinimumWidth(480)
         form = QFormLayout(self)
         names = ["(Mặc định của Windows)"] + [d.description() for d in QMediaDevices.audioOutputs()]
+        self.widgets = {}
 
-        def dev_combo(cur):
+        def dev(key, label):
             c = QComboBox()
             c.addItems(names)
-            c.setCurrentIndex(names.index(cur) if cur in names else 0)
-            return c
+            c.setCurrentIndex(names.index(cfg[key]) if cfg[key] in names else 0)
+            self.widgets[key] = c
+            form.addRow(label, c)
 
-        def spin(val, lo, hi, step, suffix):
+        def spin(key, label, hi, step, suffix):
             s = QSpinBox()
-            s.setRange(lo, hi)
+            s.setRange(0, hi)
             s.setSingleStep(step)
-            s.setValue(val)
+            s.setValue(cfg[key])
             s.setSuffix(suffix)
-            return s
+            self.widgets[key] = s
+            form.addRow(label, s)
 
-        self.main_dev = dev_combo(cfg["main_device"])
-        self.pre_dev = dev_combo(cfg["pre_device"])
-        self.pad_dev = dev_combo(cfg["pad_device"])
-        self.fade_in = spin(cfg["fade_in_ms"], 0, 10000, 100, " ms")
-        self.fade_out = spin(cfg["fade_out_ms"], 0, 20000, 250, " ms")
-        self.pause_fade = spin(cfg["pause_fade_ms"], 0, 3000, 50, " ms")
-        self.warn = spin(cfg["warn_sec"], 0, 120, 1, " giây")
-        self.duck = spin(cfg["duck_pct"], 0, 100, 5, " %")
-        form.addRow("Loa chính (ra sân khấu):", self.main_dev)
-        form.addRow("Tai nghe nghe thử:", self.pre_dev)
-        form.addRow("Thiết bị phát jingle:", self.pad_dev)
-        form.addRow("Fade in khi bắt đầu bài:", self.fade_in)
-        form.addRow("Fade out khi bấm Dừng:", self.fade_out)
-        form.addRow("Fade khi tạm dừng/tiếp tục:", self.pause_fade)
-        form.addRow("Cảnh báo sắp hết bài trước:", self.warn)
-        form.addRow("Mức nhạc nền khi có jingle:", self.duck)
+        dev("cart_device", "Thiết bị ra của các kênh:")
+        dev("main_device", "Thiết bị ra của Playlist:")
+        dev("pre_device", "Tai nghe nghe thử:")
+        spin("cart_fade_in_ms", "Kênh — thời gian fade in:", 20000, 250, " ms")
+        spin("cart_fade_out_ms", "Kênh — thời gian fade out:", 20000, 250, " ms")
+        spin("single_fade_ms", "Phát đơn — fade kênh cũ:", 10000, 100, " ms")
+        spin("fade_in_ms", "Playlist — fade in đầu bài:", 10000, 100, " ms")
+        spin("fade_out_ms", "Playlist — fade out khi dừng:", 20000, 250, " ms")
+        spin("pause_fade_ms", "Fade khi tạm dừng/tiếp tục:", 3000, 50, " ms")
+        spin("warn_sec", "Cảnh báo sắp hết bài trước:", 120, 1, " giây")
         bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
         form.addRow(bb)
 
     def values(self):
-        dev = lambda c: "" if c.currentIndex() == 0 else c.currentText()
-        return {"main_device": dev(self.main_dev), "pre_device": dev(self.pre_dev),
-                "pad_device": dev(self.pad_dev), "fade_in_ms": self.fade_in.value(),
-                "fade_out_ms": self.fade_out.value(), "pause_fade_ms": self.pause_fade.value(),
-                "warn_sec": self.warn.value(), "duck_pct": self.duck.value()}
+        out = {}
+        for k, w in self.widgets.items():
+            out[k] = ("" if w.currentIndex() == 0 else w.currentText()) if isinstance(w, QComboBox) else w.value()
+        return out
 
 
+# ======================================================================
+class LongView(QWidget):
+    """Màn hình lớn cho người điều khiển: tên bài + thời gian còn lại cỡ lớn."""
+
+    def __init__(self, host):
+        super().__init__(None, Qt.WindowType.Window)
+        self.host = host
+        self.setWindowTitle("Long View — EventPlayer")
+        self.resize(1000, 600)
+        self.setStyleSheet("QWidget{background:#0b0b0b;color:#f5f5f5;font-family:'Segoe UI';}")
+        self.lay = QVBoxLayout(self)
+        self.lay.setContentsMargins(30, 20, 30, 20)
+        self.clock = QLabel()
+        self.clock.setAlignment(Qt.AlignmentFlag.AlignRight)
+        self.clock.setStyleSheet("font-size:28pt;color:#93c5fd;font-family:Consolas;")
+        self.lay.addWidget(self.clock)
+        self.rows = []
+        self.empty = QLabel("Không có kênh nào đang phát")
+        self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty.setStyleSheet("font-size:28pt;color:#555;")
+        self.lay.addWidget(self.empty, 1)
+        self.body = QVBoxLayout()
+        self.lay.addLayout(self.body, 1)
+
+    def update_view(self, items, warn_ms):
+        self.clock.setText(QTime.currentTime().toString("HH:mm:ss"))
+        while len(self.rows) < len(items):
+            w = QWidget()
+            h = QHBoxLayout(w)
+            name, t = QLabel(), QLabel()
+            name.setStyleSheet("font-size:30pt;font-weight:600;")
+            t.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            h.addWidget(name, 1)
+            h.addWidget(t)
+            self.body.addWidget(w)
+            self.rows.append((w, name, t))
+        blink = QTime.currentTime().msec() < 500
+        for i, (w, name, t) in enumerate(self.rows):
+            if i < len(items):
+                label, rem, _dur = items[i]
+                w.show()
+                name.setText(label)
+                t.setText("-" + hms(rem))
+                col = ("#ef4444" if blink else "#7f1d1d") if rem <= warn_ms else "#4ade80"
+                t.setStyleSheet(f"font-size:64pt;font-weight:700;font-family:Consolas;color:{col};")
+            else:
+                w.hide()
+        self.empty.setVisible(not items)
+
+
+# ======================================================================
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle(APP_TITLE)
-        self.resize(1280, 800)
         self.settings = QSettings()
         self.cfg = dict(DEFAULT_CFG)
-
-        self.decks = [Deck(self), Deck(self)]
-        self.active = 0
+        try:
+            self.cfg.update(json.loads(self.settings.value("config", "{}")))
+        except (TypeError, ValueError):
+            pass
+        self.locked = False
+        self.single = False
+        self.project_path = ""
+        self.dirty = False
+        self._loading = False
+        self.go_next = 1
         self.pre = Deck(self)
-        self.cur = None      # (view, track_id) bài đang / vừa phát
-        self.cued = None     # (view, track_id) bài được chỉ định phát kế tiếp
-        self._xfade_done = False
-        self._duck_target = 1.0
-        self._duck_cur = 1.0
-        self._ticks = 0
-        self._remain_warn = None
-
-        for d in self.decks:
-            d.ended.connect(lambda d=d: self.on_deck_ended(d))
-            d.error.connect(self.on_error)
-            d.stateChanged.connect(self.refresh_marks)
-        self.pre.error.connect(self.on_error)
+        self.pre_title = ""
+        self.long_view = None
 
         self.build_ui()
         self.build_menu()
         self.build_shortcuts()
-        self.load_settings()
-        self.load_session()
         self.apply_devices()
-
         self.media_devices = QMediaDevices(self)
         self.media_devices.audioOutputsChanged.connect(self.apply_devices)
 
-        self.ui_timer = QTimer(self)
-        self.ui_timer.setInterval(100)
-        self.ui_timer.timeout.connect(self.tick)
-        self.ui_timer.start()
-        self.refresh_marks()
+        geo = self.settings.value("geometry")
+        if geo is not None:
+            self.restoreGeometry(geo)
+        self.load_autosave()
+
+        self.timer = QTimer(self)
+        self.timer.setInterval(50)
+        self.timer.timeout.connect(self.tick)
+        self.timer.start()
+        self._ticks = 0
 
     # ================= GIAO DIỆN =================
     def build_ui(self):
         central = QWidget()
         root = QVBoxLayout(central)
-        root.setContentsMargins(10, 10, 10, 6)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-        # --- Khung đang phát ---
-        np = QFrame()
-        np.setObjectName("nowPlaying")
-        g = QGridLayout(np)
-        g.setContentsMargins(16, 12, 16, 12)
-        self.lbl_title = QLabel("— Sẵn sàng —")
-        self.lbl_title.setObjectName("bigTitle")
-        self.lbl_artist = QLabel("")
-        self.lbl_artist.setObjectName("artist")
-        self.lbl_clock = QLabel("00:00:00")
-        self.lbl_clock.setObjectName("clock")
-        self.lbl_elapsed = QLabel("0:00")
-        self.lbl_elapsed.setObjectName("timeBig")
-        self.lbl_remain = QLabel("-0:00")
-        self.lbl_remain.setObjectName("timeBig")
-        self.lbl_remain.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self.seek = SeekSlider()
-        self.seek.setRange(0, 1)
-        self.seek.seekRequested.connect(self.seek_to)
-        self.lbl_next = QLabel("Tiếp theo: —")
-        self.lbl_next.setObjectName("next")
-        g.addWidget(self.lbl_title, 0, 0, 1, 2)
-        g.addWidget(self.lbl_clock, 0, 2, Qt.AlignmentFlag.AlignRight)
-        g.addWidget(self.lbl_artist, 1, 0, 1, 3)
-        g.addWidget(self.lbl_elapsed, 2, 0)
-        g.addWidget(self.seek, 2, 1)
-        g.addWidget(self.lbl_remain, 2, 2)
-        g.addWidget(self.lbl_next, 3, 0, 1, 3)
-        g.setColumnStretch(1, 1)
-        root.addWidget(np)
+        # --- thanh công cụ ---
+        tb = QWidget()
+        tb.setObjectName("toolbar")
+        tl = QHBoxLayout(tb)
+        tl.setContentsMargins(12, 4, 12, 4)
+        tl.setSpacing(2)
+        self.page_group = QButtonGroup(self)
+        self.page_group.setExclusive(True)
 
-        # --- Hàng nút điều khiển ---
-        tr = QHBoxLayout()
-
-        def tbtn(text, slot, name="transport", tip=""):
-            b = QPushButton(text)
-            b.setObjectName(name)
+        def tool(text, ic, slot=None, checkable=False, tip=""):
+            b = QToolButton()
+            b.setObjectName("tool")
+            b.setText(text)
+            b.setIcon(ic)
+            b.setIconSize(QSize(30, 30))
+            b.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+            b.setCheckable(checkable)
             b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            b.setToolTip(tip)
-            b.clicked.connect(slot)
-            tr.addWidget(b)
+            b.setToolTip(tip or text)
+            b.setMinimumWidth(78)
+            if slot:
+                (b.toggled if checkable else b.clicked).connect(slot)
+            tl.addWidget(b)
             return b
 
-        tbtn("⏮", self.prev_track, tip="Bài trước (Ctrl+←)")
-        self.btn_play = tbtn("▶ PHÁT", self.play_pause, tip="Phát / Tạm dừng (Space)")
-        self.btn_play.setObjectName("transport")
-        self.btn_play.setProperty("class", "play")
-        self.btn_play.setStyleSheet("background:#166534;border-color:#22c55e;")
-        b_stop = tbtn("⏹ DỪNG", self.stop_main, tip="Dừng có fade (Esc). Bấm 2 lần = dừng ngay")
-        b_stop.setStyleSheet("background:#7f1d1d;border-color:#ef4444;")
-        tbtn("⏭", self.next_track, tip="Bài tiếp (Ctrl+→)")
-        tr.addSpacing(16)
+        def sep():
+            line = QFrame()
+            line.setFrameShape(QFrame.Shape.VLine)
+            line.setStyleSheet("color:#d4d4d4;")
+            line.setFixedHeight(44)
+            tl.addSpacing(6)
+            tl.addWidget(line)
+            tl.addSpacing(6)
 
-        col = QVBoxLayout()
-        col.addWidget(QLabel("Chế độ phát"))
-        self.cmb_mode = QComboBox()
-        self.cmb_mode.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        for key, text in MODES:
-            self.cmb_mode.addItem(text, key)
-        self.cmb_mode.currentIndexChanged.connect(lambda _i: self.refresh_marks())
-        col.addWidget(self.cmb_mode)
-        tr.addLayout(col)
+        g = "#3a3a3a"
+        self.pg_buttons = []
+        for i, (text, code) in enumerate((("Audio 1-16", "\uEC4F"), ("Audio 17-32", "\uEC4F"),
+                                          ("Playlist", "\uE8FD"))):
+            b = tool(text, glyph_icon(code, g), checkable=True, tip=f"{text} (Ctrl+{i + 1})")
+            self.page_group.addButton(b, i)
+            self.pg_buttons.append(b)
+        self.page_group.idClicked.connect(self.show_page)
+        tl.addStretch(1)
+        self.btn_new = tool("Dự án mới", glyph_icon("\uE8A5", g), self.new_project)
+        self.btn_open = tool("Mở", glyph_icon("\uE838", g), self.open_project)
+        tool("Lưu", glyph_icon("\uE74E", g), self.save_project)
+        sep()
+        tool("Tùy chọn", glyph_icon("\uE713", g), self.open_settings)
+        tool("Phím tắt", glyph_icon("\uE765", g), self.show_shortcuts)
+        tool("Hướng dẫn", glyph_icon("\uE897", g), self.show_guide)
+        sep()
+        self.btn_single = tool("Phát đơn", shape_icon("single", g), self.set_single, True,
+                               "Phát đơn: khi phát một kênh, các kênh khác tự fade out")
+        self.btn_single.setProperty("accent", True)
+        tl.addStretch(2)
+        tool("Long View", glyph_icon("\uE7F4", g), self.toggle_long_view, tip="Màn hình lớn (F11)")
+        tool("Dừng hết", shape_icon("stopall", "#dc2626"), self.stop_all,
+             tip="Dừng tất cả (Esc). Bấm 2 lần = dừng ngay")
+        self.btn_lock = tool("Khóa cài đặt", glyph_icon("\uE785", g), self.set_locked, True,
+                             "Khóa: không cho đổi file/cấu hình kênh trong lúc diễn")
+        root.addWidget(tb)
 
-        col = QVBoxLayout()
-        col.addWidget(QLabel("Crossfade"))
-        self.spn_xfade = QSpinBox()
-        self.spn_xfade.setRange(0, 20)
-        self.spn_xfade.setSuffix(" giây")
-        self.spn_xfade.setToolTip("Thời gian chồng/chuyển giữa 2 bài (chế độ phát liên tục)")
-        col.addWidget(self.spn_xfade)
-        tr.addLayout(col)
+        self.lbl_path = QLabel()
+        self.lbl_path.setObjectName("pathBar")
+        root.addWidget(self.lbl_path)
 
-        col = QVBoxLayout()
-        self.lbl_vol = QLabel("Âm lượng: 100%")
-        col.addWidget(self.lbl_vol)
-        self.sld_vol = QSlider(Qt.Orientation.Horizontal)
-        self.sld_vol.setRange(0, 100)
-        self.sld_vol.setValue(100)
-        self.sld_vol.setFixedWidth(160)
-        self.sld_vol.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.sld_vol.valueChanged.connect(self.set_volume)
-        col.addWidget(self.sld_vol)
-        tr.addLayout(col)
+        # --- thân: các trang + cột phải ---
+        body = QHBoxLayout()
+        body.setContentsMargins(10, 8, 10, 4)
+        body.setSpacing(10)
+        self.stack = QStackedWidget()
+        self.strips = []
+        for page in range(2):
+            w = QWidget()
+            grid = QGridLayout(w)
+            grid.setContentsMargins(0, 0, 0, 0)
+            grid.setHorizontalSpacing(10)
+            grid.setVerticalSpacing(8)
+            for k in range(16):
+                n = page * 16 + k + 1
+                s = ChannelStrip(n, HOTKEYS[n - 1], self)
+                s.started.connect(self.on_strip_started)
+                s.changed.connect(self.mark_dirty)
+                s.message.connect(lambda m: self.statusBar().showMessage(m, 6000))
+                self.strips.append(s)
+                grid.addWidget(s, k // 8, k % 8)
+            for c in range(8):
+                grid.setColumnStretch(c, 1)
+            self.stack.addWidget(w)
+        self.playlist = PlaylistPage(self)
+        self.playlist.changed.connect(self.mark_dirty)
+        self.stack.addWidget(self.playlist)
+        body.addWidget(self.stack, 1)
 
-        tr.addStretch()
-        col = QVBoxLayout()
-        self.btn_pre = QPushButton("🎧 Nghe thử")
-        self.btn_pre.setObjectName("preBtn")
-        self.btn_pre.setCheckable(True)
-        self.btn_pre.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.btn_pre.setToolTip("Nghe thử bài đang chọn ra tai nghe (Ctrl+L)")
-        self.btn_pre.clicked.connect(lambda _c: self.toggle_prelisten())
-        col.addWidget(self.btn_pre)
-        self.lbl_pre = QLabel("")
-        self.lbl_pre.setStyleSheet("color:#60a5fa;")
-        col.addWidget(self.lbl_pre)
-        tr.addLayout(col)
-        root.addLayout(tr)
-
-        # --- Danh sách phát + jingle ---
-        split = QSplitter(Qt.Orientation.Horizontal)
-        left = QWidget()
-        lv = QVBoxLayout(left)
-        lv.setContentsMargins(0, 0, 0, 0)
-        bar = QHBoxLayout()
-        lbl = QLabel("DANH SÁCH PHÁT")
-        lbl.setObjectName("sectionTitle")
-        bar.addWidget(lbl)
-        bar.addStretch()
-        for text, slot in [("+ File", self.add_files), ("+ Thư mục", self.add_folder),
-                           ("Xóa", self.remove_selected), ("Mở...", self.open_playlist),
-                           ("Lưu...", self.save_playlist)]:
-            b = QPushButton(text)
-            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            b.clicked.connect(slot)
-            bar.addWidget(b)
-        lv.addLayout(bar)
-        self.tabs = QTabWidget()
-        self.tabs.setTabsClosable(True)
-        self.tabs.setMovable(True)
-        self.tabs.tabCloseRequested.connect(self.close_tab)
-        self.tabs.tabBarDoubleClicked.connect(self.rename_tab)
-        self.tabs.currentChanged.connect(lambda _i: self.refresh_marks())
-        plus = QToolButton()
-        plus.setText(" + ")
-        plus.setToolTip("Tạo danh sách mới")
-        plus.clicked.connect(lambda: self.new_playlist())
-        self.tabs.setCornerWidget(plus, Qt.Corner.TopRightCorner)
-        lv.addWidget(self.tabs, 1)
-        split.addWidget(left)
-
-        self.pads = PadPanel()
-        self.pads.anyPlayingChanged.connect(self.on_pads_playing)
-        split.addWidget(self.pads)
-        split.setStretchFactor(0, 3)
-        split.setStretchFactor(1, 2)
-        split.setSizes([780, 480])
-        root.addWidget(split, 1)
-
+        right = QVBoxLayout()
+        right.setSpacing(3)
+        right.addSpacing(22)
+        self.btn_go = QPushButton("GO 1")
+        self.btn_go.setObjectName("go")
+        self.btn_go.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.btn_go.setToolTip("Phát kênh kế tiếp theo thứ tự (Space). Chuột phải để chọn kênh.")
+        self.btn_go.clicked.connect(self.go)
+        self.btn_go.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.btn_go.customContextMenuRequested.connect(self.go_menu)
+        right.addWidget(self.btn_go)
+        right.addStretch(1)
+        lbl = QLabel("Master")
+        lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        right.addWidget(lbl)
+        mf = QFrame()
+        mf.setObjectName("strip")
+        ml = QVBoxLayout(mf)
+        mh = QHBoxLayout()
+        self.master = Fader()
+        self.master.valueChanged.connect(self.on_master)
+        mh.addWidget(self.master, 1)
+        self.master_meter = VUMeter()
+        mh.addWidget(self.master_meter)
+        ml.addLayout(mh, 1)
+        self.lbl_master = QLabel("100%")
+        self.lbl_master.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        ml.addWidget(self.lbl_master)
+        right.addWidget(mf, 1)
+        rw = QWidget()
+        rw.setLayout(right)
+        rw.setFixedWidth(130)
+        body.addWidget(rw)
+        root.addLayout(body, 1)
         self.setCentralWidget(central)
-        self.lbl_status = QLabel("")
-        self.statusBar().addPermanentWidget(self.lbl_status)
+
+        self.lbl_clock = QLabel()
+        self.lbl_clock.setStyleSheet("font-family:Consolas;font-size:10.5pt;padding-right:8px;")
+        ver = QLabel(f"v{VERSION}")
+        ver.setStyleSheet("color:#888;padding-right:12px;")
+        self.statusBar().addPermanentWidget(ver)
+        self.statusBar().addPermanentWidget(self.lbl_clock)
+        self.master.setValue(97)
+        self.pg_buttons[0].setChecked(True)
 
     def build_menu(self):
         mb = self.menuBar()
-        m = mb.addMenu("&Tệp")
-        m.addAction("Danh sách mới", lambda: self.new_playlist(), QKeySequence("Ctrl+T"))
-        m.addAction("Mở danh sách...", self.open_playlist, QKeySequence("Ctrl+O"))
-        m.addAction("Lưu danh sách đang mở...", self.save_playlist, QKeySequence("Ctrl+S"))
-        m.addSeparator()
-        m.addAction("Thêm file nhạc...", self.add_files)
-        m.addAction("Thêm thư mục nhạc...", self.add_folder)
+        m = mb.addMenu("Tệp")
+        m.addAction("Dự án mới", self.new_project, QKeySequence("Ctrl+N"))
+        m.addAction("Mở dự án...", self.open_project, QKeySequence("Ctrl+O"))
+        m.addAction("Lưu", self.save_project, QKeySequence("Ctrl+S"))
+        m.addAction("Lưu thành...", self.save_project_as, QKeySequence("Ctrl+Shift+S"))
         m.addSeparator()
         m.addAction("Thoát", self.close)
-        m = mb.addMenu("&Phát")
-        m.addAction("Đánh dấu tất cả là chưa phát", self.reset_played)
-        m.addAction("Dừng mọi âm thanh ngay lập tức", self.panic, QKeySequence("Ctrl+Shift+Esc"))
-        m = mb.addMenu("&Cài đặt")
-        m.addAction("Thiết bị âm thanh && fade...", self.open_settings)
-        m = mb.addMenu("Trợ &giúp")
-        m.addAction("Phím tắt", self.show_help)
+        m = mb.addMenu("Sửa")
+        m.addAction("Đưa tất cả fader về 80%", lambda: [s.fader.setValue(80) for s in self.strips])
+        m.addAction("Xóa tất cả kênh...", self.clear_all_channels)
+        m.addSeparator()
+        m.addAction("Playlist: đánh dấu tất cả là chưa phát", self.playlist.reset_played)
+        m = mb.addMenu("Hiển thị")
+        for i, t in enumerate(("Audio 1-16", "Audio 17-32", "Playlist")):
+            m.addAction(t, lambda i=i: self.show_page(i), QKeySequence(f"Ctrl+{i + 1}"))
+        m.addSeparator()
+        m.addAction("Long View", self.toggle_long_view, QKeySequence("F11"))
+        m = mb.addMenu("Tùy chỉnh")
+        m.addAction("Tùy chọn...", self.open_settings)
+        self.act_single = m.addAction("Phát đơn")
+        self.act_single.setCheckable(True)
+        self.act_single.toggled.connect(self.btn_single.setChecked)
+        self.act_lock = m.addAction("Khóa cài đặt")
+        self.act_lock.setCheckable(True)
+        self.act_lock.toggled.connect(self.btn_lock.setChecked)
+        m = mb.addMenu("Trợ giúp")
+        m.addAction("Phím tắt", self.show_shortcuts)
+        m.addAction("Hướng dẫn", self.show_guide)
 
     def build_shortcuts(self):
         def sc(key, fn):
             s = QShortcut(QKeySequence(key), self)
             s.activated.connect(fn)
 
-        sc(Qt.Key.Key_Space, self.play_pause)
-        sc(Qt.Key.Key_Escape, self.stop_main)
-        sc("Ctrl+Right", self.next_track)
-        sc("Ctrl+Left", self.prev_track)
-        sc("Ctrl+L", self.toggle_prelisten)
-        sc("Ctrl+E", self.cue_selected)
-        sc("Ctrl+Up", lambda: self.sld_vol.setValue(self.sld_vol.value() + 5))
-        sc("Ctrl+Down", lambda: self.sld_vol.setValue(self.sld_vol.value() - 5))
-        for i in range(12):
-            sc(f"F{i + 1}", lambda i=i: self.pads.trigger(i))
+        for s in self.strips:
+            sc(s.hotkey, s.cart_clicked)
+        sc(Qt.Key.Key_Space, self.space_pressed)
+        sc(Qt.Key.Key_Escape, self.escape_pressed)
+        sc("Ctrl+Shift+Esc", self.panic)
+        sc("Ctrl+Right", self.playlist.next_track)
+        sc("Ctrl+Left", self.playlist.prev_track)
+        sc("Ctrl+E", self.playlist.cue_selected)
+        sc("Ctrl+L", self.playlist.prelisten_selected)
 
-    # ================= DANH SÁCH =================
-    def new_playlist(self, name=None, tracks=None, select=True):
-        if name is None:
-            name, ok = QInputDialog.getText(self, "Danh sách mới", "Tên danh sách:",
-                                            text=f"Danh sách {self.tabs.count() + 1}")
-            if not ok:
-                return None
-            name = name.strip() or f"Danh sách {self.tabs.count() + 1}"
-        view = PlaylistView()
-        if tracks:
-            view.from_list(tracks)
-        view.itemActivated.connect(lambda item, _c, v=view: self.start_track(
-            v, item.data(0, Qt.ItemDataRole.UserRole)))
-        view.customContextMenuRequested.connect(lambda pos, v=view: self.track_menu(v, pos))
-        view.changed.connect(self.refresh_marks)
-        idx = self.tabs.addTab(view, name)
-        if select:
-            self.tabs.setCurrentIndex(idx)
-        return view
+    # ================= TRANG / CHẾ ĐỘ =================
+    def show_page(self, i):
+        self.stack.setCurrentIndex(i)
+        self.pg_buttons[i].setChecked(True)
+        self.statusBar().clearMessage()
 
-    def current_view(self):
-        w = self.tabs.currentWidget()
-        return w if isinstance(w, PlaylistView) else None
+    def set_single(self, on):
+        self.single = on
+        self.act_single.setChecked(on)
+        self.mark_dirty()
 
-    def view_valid(self, v):
-        return v is not None and self.tabs.indexOf(v) != -1
+    def set_locked(self, on):
+        self.locked = on
+        self.act_lock.setChecked(on)
+        self.btn_lock.setIcon(glyph_icon("\uE72E" if on else "\uE785", "#dc2626" if on else "#3a3a3a"))
+        self.btn_new.setEnabled(not on)
+        self.btn_open.setEnabled(not on)
+        for s in self.strips:
+            s.refresh()
 
-    def close_tab(self, idx):
-        view = self.tabs.widget(idx)
-        if view.topLevelItemCount() and QMessageBox.question(
-                self, "Đóng danh sách", f"Đóng danh sách “{self.tabs.tabText(idx)}”?") != QMessageBox.StandardButton.Yes:
+    def on_strip_started(self, strip):
+        if self.single:
+            for s in self.strips:
+                if s is not strip and s.deck.is_playing():
+                    s.stop(self.cfg["single_fade_ms"])
+            if self.playlist.is_active():
+                self.playlist.stop_main(self.cfg["single_fade_ms"])
+
+    def on_playlist_started(self):
+        if self.single:
+            for s in self.strips:
+                if s.deck.is_playing():
+                    s.stop(self.cfg["single_fade_ms"])
+
+    # ---------- GO ----------
+    def loaded_numbers(self):
+        return [s.number for s in self.strips if s.path]
+
+    def update_go(self):
+        nums = self.loaded_numbers()
+        if nums and self.go_next not in nums:
+            later = [n for n in nums if n >= self.go_next]
+            self.go_next = later[0] if later else nums[0]
+        self.btn_go.setText(f"GO {self.go_next}" if nums else "GO")
+
+    def go(self):
+        nums = self.loaded_numbers()
+        if not nums:
             return
-        self.tabs.removeTab(idx)
-        view.deleteLater()
-        if self.tabs.count() == 0:
-            self.new_playlist("Danh sách 1")
-        self.refresh_marks()
+        self.update_go()
+        n = self.go_next
+        self.strips[n - 1].play()
+        later = [x for x in nums if x > n]
+        self.go_next = later[0] if later else nums[0]
+        self.update_go()
 
-    def rename_tab(self, idx):
-        if idx < 0:
-            return
-        name, ok = QInputDialog.getText(self, "Đổi tên", "Tên danh sách:", text=self.tabs.tabText(idx))
-        if ok and name.strip():
-            self.tabs.setTabText(idx, name.strip())
-
-    def add_files(self):
-        v = self.current_view()
-        files, _ = QFileDialog.getOpenFileNames(self, "Thêm nhạc", self.settings.value("lastDir", ""), AUDIO_FILTER)
-        if files and v:
-            self.settings.setValue("lastDir", os.path.dirname(files[0]))
-            n = v.add_paths(files)
-            self.statusBar().showMessage(f"Đã thêm {n} bài", 4000)
-
-    def add_folder(self):
-        v = self.current_view()
-        d = QFileDialog.getExistingDirectory(self, "Chọn thư mục nhạc", self.settings.value("lastDir", ""))
-        if d and v:
-            self.settings.setValue("lastDir", d)
-            QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-            try:
-                n = v.add_paths([d])
-            finally:
-                QApplication.restoreOverrideCursor()
-            self.statusBar().showMessage(f"Đã thêm {n} bài", 4000)
-
-    def remove_selected(self):
-        v = self.current_view()
-        if v:
-            v.remove_ids(set(v.selected_ids()))
-
-    def save_playlist(self):
-        v = self.current_view()
-        if not v:
-            return
-        name = self.tabs.tabText(self.tabs.currentIndex())
-        path, flt = QFileDialog.getSaveFileName(self, "Lưu danh sách", name + ".evpl",
-                                                "Danh sách EventPlayer (*.evpl);;Danh sách M3U (*.m3u8)")
-        if not path:
-            return
-        try:
-            if path.lower().endswith((".m3u", ".m3u8")):
-                with open(path, "w", encoding="utf-8") as fh:
-                    fh.write("#EXTM3U\n")
-                    for t in v.to_list():
-                        fh.write(f"#EXTINF:{t['duration'] // 1000},{t['artist']} - {t['title']}\n{t['path']}\n")
-            else:
-                with open(path, "w", encoding="utf-8") as fh:
-                    json.dump({"name": name, "tracks": v.to_list()}, fh, ensure_ascii=False, indent=1)
-            self.statusBar().showMessage("Đã lưu " + path, 4000)
-        except OSError as e:
-            QMessageBox.warning(self, "Lỗi", str(e))
-
-    def open_playlist(self):
-        path, _ = QFileDialog.getOpenFileName(self, "Mở danh sách", "",
-                                              "Danh sách (*.evpl *.m3u *.m3u8)")
-        if not path:
-            return
-        name = os.path.splitext(os.path.basename(path))[0]
-        if path.lower().endswith(".evpl"):
-            try:
-                with open(path, encoding="utf-8") as fh:
-                    data = json.load(fh)
-                self.new_playlist(data.get("name", name), data.get("tracks", []))
-            except (OSError, ValueError) as e:
-                QMessageBox.warning(self, "Lỗi", f"Không mở được danh sách:\n{e}")
-        else:
-            v = self.new_playlist(name)
-            v.add_paths([path])
-
-    def reset_played(self):
-        for i in range(self.tabs.count()):
-            for t in self.tabs.widget(i).tracks.values():
-                t.played = False
-        self.refresh_marks()
-
-    def track_menu(self, view, pos):
-        item = view.itemAt(pos)
+    def go_menu(self, pos):
         m = QMenu(self)
-        if item:
-            tid = item.data(0, Qt.ItemDataRole.UserRole)
-            t = view.tracks[tid]
-            ids = view.selected_ids() or [tid]
-            m.addAction("▶  Phát ngay", lambda: self.start_track(view, tid))
-            m.addAction("⏭  Đặt làm bài kế tiếp (Ctrl+E)", lambda: self.set_cue(view, tid))
-            m.addAction("🎧  Nghe thử ra tai nghe", lambda: self.prelisten(view, tid))
-            a = m.addAction("⏹  Dừng sau bài này")
-            a.setCheckable(True)
-            a.setChecked(t.stop_after)
-            a.toggled.connect(lambda on: self.set_stop_after(view, ids, on))
-            m.addSeparator()
-            m.addAction("Đánh dấu chưa phát", lambda: self.set_played(view, ids, False))
-            m.addAction("Đánh dấu đã phát", lambda: self.set_played(view, ids, True))
-            m.addAction("Mở thư mục chứa file", lambda: subprocess.Popen(
-                ["explorer", "/select,", os.path.normpath(t.path)]))
-            m.addSeparator()
-            m.addAction("Xóa khỏi danh sách (Del)", lambda: view.remove_ids(set(ids)))
+        for n in self.loaded_numbers():
+            a = m.addAction(f"GO kênh {n} — {self.strips[n - 1].display_name()}")
+            a.triggered.connect(lambda _c=False, n=n: (setattr(self, "go_next", n), self.update_go()))
+        if m.isEmpty():
+            m.addAction("(Chưa có kênh nào có nhạc)").setEnabled(False)
+        m.exec(self.btn_go.mapToGlobal(pos))
+
+    # ---------- phím ----------
+    def space_pressed(self):
+        if self.stack.currentIndex() == 2:
+            self.playlist.play_pause()
         else:
-            m.addAction("Thêm file nhạc...", self.add_files)
-            m.addAction("Thêm thư mục nhạc...", self.add_folder)
-        m.exec(view.viewport().mapToGlobal(pos))
+            self.go()
 
-    def set_stop_after(self, view, ids, on):
-        for i in ids:
-            if i in view.tracks:
-                view.tracks[i].stop_after = on
-        self.refresh_marks()
+    def escape_pressed(self):
+        if self.stack.currentIndex() == 2:
+            self.playlist.stop_main()
+        else:
+            self.stop_all()
 
-    def set_played(self, view, ids, on):
-        for i in ids:
-            if i in view.tracks:
-                view.tracks[i].played = on
-        self.refresh_marks()
-
-    def set_cue(self, view, tid):
-        self.cued = (view, tid)
-        self.refresh_marks()
-
-    def cue_selected(self):
-        v = self.current_view()
-        if v and v.selected_ids():
-            self.set_cue(v, v.selected_ids()[0])
-
-    # ================= PHÁT NHẠC =================
-    @property
-    def deck(self):
-        return self.decks[self.active]
-
-    def mode(self):
-        return self.cmb_mode.currentData()
-
-    def xfade_ms(self):
-        return self.spn_xfade.value() * 1000
-
-    def cur_track(self):
-        if self.cur and self.view_valid(self.cur[0]):
-            return self.cur[0].tracks.get(self.cur[1])
-        return None
-
-    def next_candidate(self):
-        if self.cued and self.view_valid(self.cued[0]) and self.cued[1] in self.cued[0].tracks:
-            return self.cued
-        if self.cur and self.view_valid(self.cur[0]):
-            v, tid = self.cur
-            ids = v.ordered_ids()
-            if tid in ids:
-                i = ids.index(tid)
-                if i + 1 < len(ids):
-                    return v, ids[i + 1]
-                if self.mode() == "repeat_all" and ids:
-                    return v, ids[0]
-                return None
-        v = self.current_view()
-        if v:
-            sel = v.selected_ids()
-            if sel:
-                return v, sel[0]
-            ids = v.ordered_ids()
-            if ids:
-                return v, ids[0]
-        return None
-
-    def start_track(self, view, tid, crossfade=None):
-        t = view.tracks.get(tid)
-        if t is None:
+    def stop_all(self):
+        decks = [s.deck for s in self.strips] + self.playlist.decks
+        if any(d.fading_out() for d in decks):
+            self.panic()
             return
-        if t.missing:
-            self.statusBar().showMessage("Không tìm thấy file: " + t.path, 6000)
-            self.refresh_marks()
-            return
-        old = self.deck
-        was_playing = old.is_playing()
-        if was_playing:
-            xf = self.xfade_ms() if crossfade is None else crossfade
-            old.stop(xf if xf > 0 else 300)
-            self.active ^= 1
-        else:
-            old.stop()
-        new = self.deck
-        new.stop()
-        new.set_duck(self._duck_cur)
-        new.load(t.path)
-        if was_playing and crossfade:
-            new.play(crossfade)
-        else:
-            new.play(self.cfg["fade_in_ms"])
-        t.played = True
-        self.cur = (view, tid)
-        self.cued = None
-        self._xfade_done = False
-        item = view.item_of(tid)
-        if item:
-            view.scrollToItem(item)
-        self.refresh_marks()
-
-    def on_deck_ended(self, d):
-        if d is not self.deck:
-            return  # deck cũ đã crossfade xong
-        t = self.cur_track()
-        if self.mode() == "repeat_one" and t:
-            d.player.setPosition(0)
-            d.play()
-            return
-        nxt = self.next_candidate()
-        if t is None or t.stop_after or self.mode() == "stop" or nxt is None:
-            if nxt:
-                it = nxt[0].item_of(nxt[1])
-                if it:
-                    nxt[0].scrollToItem(it)
-            self.refresh_marks()
-            return
-        self.start_track(*nxt, crossfade=0)
-
-    def play_pause(self):
-        d = self.deck
-        if d.is_playing():
-            d.pause(self.cfg["pause_fade_ms"])
-        elif d.is_paused():
-            d.play(self.cfg["pause_fade_ms"])
-        else:
-            n = self.next_candidate()
-            if n:
-                self.start_track(*n)
-
-    def stop_main(self):
-        d = self.deck
-        if d.fading_out() or not d.is_playing():
-            for x in self.decks:
-                x.stop()
-        else:
-            d.stop(self.cfg["fade_out_ms"])
-            other = self.decks[self.active ^ 1]
-            if other.is_playing():
-                other.stop(300)
+        for s in self.strips:
+            s.stop(500 if s.deck.is_playing() else 0)
+        if self.playlist.is_active():
+            self.playlist.stop_main(500)
 
     def panic(self):
-        for x in self.decks:
-            x.stop()
+        for s in self.strips:
+            s.stop()
+        for d in self.playlist.decks:
+            d.stop()
         self.pre.stop()
-        for p in self.pads.pads:
-            p.deck.stop()
 
-    def next_track(self):
-        n = self.next_candidate()
-        if n:
-            self.start_track(*n)
+    # ---------- master / thiết bị ----------
+    def on_master(self, v):
+        self.lbl_master.setText(f"{v}%")
+        for s in self.strips:
+            s.set_bus(v / 100)
+        self.playlist.set_bus(v / 100)
+        self.mark_dirty()
 
-    def prev_track(self):
-        if not (self.cur and self.view_valid(self.cur[0])):
-            return
-        v, tid = self.cur
-        ids = v.ordered_ids()
-        if tid in ids:
-            i = ids.index(tid)
-            if self.deck.position() > 3000 or i == 0:
-                self.start_track(v, tid)
-            else:
-                self.start_track(v, ids[i - 1])
+    def apply_devices(self):
+        for s in self.strips:
+            s.apply_device()
+        self.playlist.set_device(find_output_device(self.cfg["main_device"]))
+        self.pre.set_device(find_output_device(self.cfg["pre_device"]))
 
-    def seek_to(self, ms):
-        d = self.deck
-        if d.is_playing() or d.is_paused():
-            d.player.setPosition(ms)
-            self._xfade_done = False
-
-    def set_volume(self, v):
-        self.lbl_vol.setText(f"Âm lượng: {v}%")
-        for d in self.decks:
-            d.set_master(v / 100)
-
-    def on_pads_playing(self, playing):
-        duck = self.cfg["duck_pct"] / 100 if (playing and self.pads.chk_duck.isChecked()) else 1.0
-        self._duck_target = duck
-
-    # ---------- nghe thử ----------
-    def prelisten(self, view, tid):
-        t = view.tracks.get(tid)
-        if not t or t.missing:
-            return
-        self.pre.load(t.path)
-        self.pre.play()
-        self.pre_title = t.title
-        self.btn_pre.setChecked(True)
-
-    def toggle_prelisten(self):
-        if self.pre.is_playing():
+    def prelisten_file(self, path, title):
+        if self.pre.is_playing() and self.pre_title == title:
             self.pre.stop()
-            self.btn_pre.setChecked(False)
             return
-        v = self.current_view()
-        sel = v.selected_ids() if v else []
-        if sel:
-            self.prelisten(v, sel[0])
-        else:
-            self.btn_pre.setChecked(False)
-            self.statusBar().showMessage("Chọn một bài trong danh sách để nghe thử", 3000)
+        if not os.path.isfile(path):
+            return
+        self.pre.load(path)
+        self.pre.play()
+        self.pre_title = title
+        self.statusBar().showMessage(f"🎧 Nghe thử: {title}  (chọn lại để tắt)", 5000)
 
-    # ================= CẬP NHẬT HIỂN THỊ =================
-    def refresh_marks(self):
-        d = self.deck
-        active = d.is_playing() or d.is_paused()
-        nxt = self.next_candidate()
-        for i in range(self.tabs.count()):
-            v = self.tabs.widget(i)
-            play_id = self.cur[1] if (active and self.cur and self.cur[0] is v) else None
-            cued_id = self.cued[1] if (self.cued and self.cued[0] is v) else None
-            next_id = nxt[1] if (nxt and nxt[0] is v) else None
-            v.update_marks(play_id, d.is_paused(), cued_id, next_id)
-        if nxt:
-            t = nxt[0].tracks[nxt[1]]
-            prefix = "Kế tiếp (đã chọn)" if self.cued else "Tiếp theo"
-            self.lbl_next.setText(f"{prefix}: {t.title}" + (f" — {t.artist}" if t.artist else "")
-                                  + f"   [{fmt_ms(t.duration)}]")
-        else:
-            self.lbl_next.setText("Tiếp theo: — (hết danh sách)")
-        ct = self.cur_track()
-        if active and ct:
-            self.lbl_title.setText(("⏸ " if d.is_paused() else "") + ct.title)
-            self.lbl_artist.setText(ct.artist)
-        else:
-            self.lbl_title.setText("— Sẵn sàng —")
-            self.lbl_artist.setText("Nhấn Space để phát bài tiếp theo" if nxt else "")
-        self.btn_play.setText("⏸ TẠM DỪNG" if d.is_playing() else "▶ PHÁT")
-
-    def tick(self):
-        self._ticks += 1
-        self.lbl_clock.setText(QTime.currentTime().toString("HH:mm:ss"))
-        d = self.deck
-        active = d.is_playing() or d.is_paused()
-        pos, dur = d.position(), d.duration()
-        rem = max(0, dur - pos)
-        if active:
-            self.lbl_elapsed.setText(fmt_ms(pos))
-            self.lbl_remain.setText("-" + fmt_ms(rem))
-            if not self.seek.isSliderDown():
-                self.seek.setMaximum(max(1, dur))
-                self.seek.setValue(pos)
-        else:
-            self.lbl_elapsed.setText("0:00")
-            self.lbl_remain.setText("-0:00")
-            self.seek.setValue(0)
-
-        # cảnh báo sắp hết bài (nhấp nháy đỏ)
-        warn = active and dur > 0 and rem <= self.cfg["warn_sec"] * 1000
-        state = ("red" if QTime.currentTime().msec() < 500 else "dim") if warn else "normal"
-        if state != self._remain_warn:
-            self._remain_warn = state
-            color = {"red": "#ef4444", "dim": "#7f1d1d", "normal": "#f9fafb"}[state]
-            self.lbl_remain.setStyleSheet(f"color:{color};")
-
-        # crossfade tự động ở chế độ phát liên tục
-        xf = self.xfade_ms()
-        ct = self.cur_track()
-        if (xf > 0 and d.is_playing() and not d.fading_out() and not self._xfade_done
-                and self.mode() in ("continuous", "repeat_all") and dur > 0 and rem <= xf
-                and ct and not ct.stop_after):
-            nxt = self.next_candidate()
-            if nxt:
-                self._xfade_done = True
-                self.start_track(*nxt, crossfade=min(xf, max(rem, 1)))
-
-        # duck mượt khi phát jingle
-        if abs(self._duck_cur - self._duck_target) > 1e-3:
-            step = 0.12
-            if self._duck_cur < self._duck_target:
-                self._duck_cur = min(self._duck_target, self._duck_cur + step)
-            else:
-                self._duck_cur = max(self._duck_target, self._duck_cur - step)
-            for x in self.decks:
-                x.set_duck(self._duck_cur)
-
-        # nghe thử
-        if self.pre.is_playing():
-            self.lbl_pre.setText(f"{getattr(self, 'pre_title', '')[:28]}  -{fmt_ms(self.pre.duration() - self.pre.position())}")
-        elif self.btn_pre.isChecked() or self.lbl_pre.text():
-            self.btn_pre.setChecked(False)
-            self.lbl_pre.setText("")
-
-        # thanh trạng thái
-        if self._ticks % 5 == 0:
-            v = self.current_view()
-            if v:
-                ids = v.ordered_ids()
-                msg = f"{len(ids)} bài · tổng {fmt_ms(v.total_ms())}"
-                if active and self.cur and self.cur[0] is v and self.cur[1] in ids:
-                    after = ids[ids.index(self.cur[1]) + 1:]
-                    msg += f" · còn lại đến hết danh sách {fmt_ms(rem + v.total_ms(after))}"
-                self.lbl_status.setText(msg)
-
-    def on_error(self, msg):
-        self.statusBar().showMessage("Lỗi phát: " + msg, 8000)
-
-    # ================= CÀI ĐẶT & PHIÊN =================
     def open_settings(self):
         dlg = SettingsDialog(self, self.cfg)
         if dlg.exec():
             self.cfg.update(dlg.values())
+            self.settings.setValue("config", json.dumps(self.cfg))
             self.apply_devices()
-            self.on_pads_playing(any(p.is_playing() for p in self.pads.pads))
-            self.save_settings()
 
-    def apply_devices(self):
-        main = find_output_device(self.cfg["main_device"])
-        for d in self.decks:
-            d.set_device(main)
-        self.pre.set_device(find_output_device(self.cfg["pre_device"]))
-        self.pads.set_device(find_output_device(self.cfg["pad_device"]))
-        self.statusBar().showMessage(f"Loa chính: {main.description()}", 4000)
+    # ---------- Long View ----------
+    def toggle_long_view(self):
+        if self.long_view and self.long_view.isVisible():
+            self.long_view.close()
+            return
+        if not self.long_view:
+            self.long_view = LongView(self)
+        self.long_view.show()
+        self.long_view.raise_()
 
-    def load_settings(self):
+    # ================= VÒNG CẬP NHẬT =================
+    def tick(self):
+        self._ticks += 1
+        if self._ticks % 4 == 0:
+            self.lbl_clock.setText(QTime.currentTime().toString("HH:mm:ss"))
+        page = self.stack.currentIndex()
+        lv = [0.0, 0.0]
+        for i, s in enumerate(self.strips):
+            if (i // 16) == page or s.deck.is_playing() or s.deck.is_paused():
+                s.tick()
+                lv = [max(lv[0], s.last_levels[0]), max(lv[1], s.last_levels[1])]
+            else:
+                s.deck.take_levels()
+        pl = self.playlist.take_levels()
+        self.playlist.tick(pl)
+        lv = [max(lv[0], pl[0]), max(lv[1], pl[1])]
+        self.master_meter.set_levels(lv)
+        if self.long_view and self.long_view.isVisible() and self._ticks % 2 == 0:
+            items = [(f"{s.number}. {s.display_name()}", max(0, s.deck.duration() - s.deck.position()),
+                      s.deck.duration()) for s in self.strips if s.deck.is_playing() or s.deck.is_paused()]
+            np = self.playlist.now_playing()
+            if np:
+                items.insert(0, ("▶ " + np[0], np[1], np[2]))
+            self.long_view.update_view(items, self.cfg["warn_sec"] * 1000)
+
+    # ================= DỰ ÁN =================
+    def mark_dirty(self):
+        if self._loading:
+            return
+        self.dirty = True
+        self.update_title()
+        self.update_go()
+
+    def update_title(self):
+        name = os.path.splitext(os.path.basename(self.project_path))[0] if self.project_path else "Chưa đặt tên"
+        self.setWindowTitle(f"{APP_NAME} - {name}{' *' if self.dirty else ''}")
+        self.lbl_path.setText((self.project_path or "(Dự án chưa lưu)") + (" *" if self.dirty else ""))
+
+    def project_data(self):
+        return {"app": APP_NAME, "version": 1, "channels": [s.to_dict() for s in self.strips],
+                "master": self.master.value(), "single": self.single, "go_next": self.go_next,
+                "playlist": self.playlist.to_dict()}
+
+    def apply_project(self, d):
+        self._loading = True
         try:
-            self.cfg.update(json.loads(self.settings.value("config", "{}")))
-        except (TypeError, ValueError):
-            pass
-        geo = self.settings.value("geometry")
-        if geo is not None:
-            self.restoreGeometry(geo)
-        self.sld_vol.setValue(int(self.settings.value("volume", 100)))
-        self.spn_xfade.setValue(int(self.settings.value("xfade", 0)))
-        self.cmb_mode.setCurrentIndex(max(0, self.cmb_mode.findData(self.settings.value("mode", "stop"))))
-        self.set_volume(self.sld_vol.value())
+            chans = d.get("channels", [])
+            for i, s in enumerate(self.strips):
+                s.from_dict(chans[i] if i < len(chans) else {})
+            self.master.setValue(int(d.get("master", 97)))
+            self.btn_single.setChecked(bool(d.get("single", False)))
+            self.go_next = int(d.get("go_next", 1))
+            self.playlist.from_dict(d.get("playlist", {}))
+        finally:
+            self._loading = False
+        self.update_go()
 
-    def save_settings(self):
-        self.settings.setValue("config", json.dumps(self.cfg))
-        self.settings.setValue("geometry", self.saveGeometry())
-        self.settings.setValue("volume", self.sld_vol.value())
-        self.settings.setValue("xfade", self.spn_xfade.value())
-        self.settings.setValue("mode", self.mode())
+    def confirm_discard(self):
+        if not self.dirty:
+            return True
+        r = QMessageBox.question(self, APP_NAME, "Dự án có thay đổi chưa lưu. Lưu lại không?",
+                                 QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard
+                                 | QMessageBox.StandardButton.Cancel)
+        if r == QMessageBox.StandardButton.Save:
+            return self.save_project()
+        return r == QMessageBox.StandardButton.Discard
 
-    def session_path(self):
+    def new_project(self):
+        if self.locked or not self.confirm_discard():
+            return
+        self.panic()
+        self.apply_project({})
+        self.project_path = ""
+        self.dirty = False
+        self.update_title()
+
+    def open_project(self, path=None):
+        if self.locked or not self.confirm_discard():
+            return
+        if not path:
+            path, _ = QFileDialog.getOpenFileName(self, "Mở dự án", self.settings.value("projDir", ""),
+                                                  f"Dự án EventPlayer (*{PROJECT_EXT})")
+        if not path:
+            return
+        try:
+            with open(path, encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (OSError, ValueError) as e:
+            QMessageBox.warning(self, "Lỗi", f"Không mở được dự án:\n{e}")
+            return
+        self.panic()
+        self.apply_project(data)
+        self.project_path = path
+        self.settings.setValue("projDir", os.path.dirname(path))
+        self.dirty = False
+        self.update_title()
+
+    def save_project(self):
+        if not self.project_path:
+            return self.save_project_as()
+        try:
+            with open(self.project_path, "w", encoding="utf-8") as fh:
+                json.dump(self.project_data(), fh, ensure_ascii=False, indent=1)
+        except OSError as e:
+            QMessageBox.warning(self, "Lỗi", f"Không lưu được:\n{e}")
+            return False
+        self.dirty = False
+        self.update_title()
+        self.statusBar().showMessage("Đã lưu dự án", 3000)
+        return True
+
+    def save_project_as(self):
+        path, _ = QFileDialog.getSaveFileName(self, "Lưu dự án",
+                                              os.path.join(self.settings.value("projDir", ""), "Sự kiện" + PROJECT_EXT),
+                                              f"Dự án EventPlayer (*{PROJECT_EXT})")
+        if not path:
+            return False
+        self.project_path = path
+        self.settings.setValue("projDir", os.path.dirname(path))
+        return self.save_project()
+
+    def clear_all_channels(self):
+        if self.locked:
+            return
+        if QMessageBox.question(self, "Xóa tất cả", "Xóa nhạc khỏi tất cả 32 kênh?") == QMessageBox.StandardButton.Yes:
+            for s in self.strips:
+                s.clear()
+
+    # ---------- tự lưu phiên ----------
+    def autosave_path(self):
         base = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
         os.makedirs(base, exist_ok=True)
-        return os.path.join(base, "session.json")
+        return os.path.join(base, "autosave.json")
 
-    def load_session(self):
-        data = {}
+    def load_autosave(self):
         try:
-            with open(self.session_path(), encoding="utf-8") as fh:
+            with open(self.autosave_path(), encoding="utf-8") as fh:
                 data = json.load(fh)
         except (OSError, ValueError):
-            pass
-        for pl in data.get("playlists", []):
-            self.new_playlist(pl.get("name", "Danh sách"), pl.get("tracks", []), select=False)
-        if self.tabs.count() == 0:
-            self.new_playlist("Danh sách 1")
-        self.tabs.setCurrentIndex(min(int(data.get("current", 0)), self.tabs.count() - 1))
-        if "pads" in data:
-            self.pads.from_dict(data["pads"])
+            data = {}
+        self.apply_project(data.get("project", {}))
+        self.project_path = data.get("project_path", "")
+        self.dirty = bool(data.get("dirty", False))
+        self.btn_lock.setChecked(bool(data.get("locked", False)))
+        self.show_page(int(data.get("page", 0)))
+        self.update_title()
 
-    def save_session(self):
-        data = {"playlists": [{"name": self.tabs.tabText(i), "tracks": self.tabs.widget(i).to_list()}
-                              for i in range(self.tabs.count())],
-                "current": self.tabs.currentIndex(),
-                "pads": self.pads.to_dict()}
+    def write_autosave(self):
+        data = {"project": self.project_data(), "project_path": self.project_path,
+                "dirty": self.dirty, "locked": self.locked, "page": self.stack.currentIndex()}
         try:
-            with open(self.session_path(), "w", encoding="utf-8") as fh:
-                json.dump(data, fh, ensure_ascii=False, indent=1)
+            with open(self.autosave_path(), "w", encoding="utf-8") as fh:
+                json.dump(data, fh, ensure_ascii=False)
         except OSError:
             pass
 
-    def show_help(self):
+    # ================= TRỢ GIÚP =================
+    def show_shortcuts(self):
+        keys = "  ".join(f"{s.hotkey}={s.number}" for s in self.strips[:16])
+        keys2 = "  ".join(f"{s.hotkey}={s.number}" for s in self.strips[16:])
         QMessageBox.information(self, "Phím tắt", (
-            "Space\tPhát / Tạm dừng (khi dừng: phát bài tiếp theo)\n"
-            "Esc\tDừng có fade out (bấm 2 lần = dừng ngay)\n"
-            "Enter / nháy đúp\tPhát ngay bài đang chọn\n"
-            "Ctrl+→ / Ctrl+←\tBài tiếp / bài trước\n"
-            "Ctrl+E\tĐặt bài đang chọn làm bài kế tiếp\n"
-            "Ctrl+L\tNghe thử bài đang chọn ra tai nghe\n"
-            "Ctrl+↑ / Ctrl+↓\tTăng / giảm âm lượng\n"
-            "F1 … F12\tPhát / dừng jingle\n"
-            "Delete\tXóa bài đang chọn khỏi danh sách\n"
-            "Ctrl+Shift+Esc\tDừng mọi âm thanh ngay\n\n"
-            "Kéo thả file/thư mục từ Explorer vào danh sách hoặc vào nút jingle.\n"
-            "Nháy đúp vào tên tab để đổi tên danh sách."))
+            f"Kênh 1-16:   {keys}\nKênh 17-32: {keys2}\n\n"
+            "Space\tGO (trang kênh) / Phát-Tạm dừng (trang Playlist)\n"
+            "Esc\tDừng hết có fade (bấm 2 lần = dừng ngay)\n"
+            "Ctrl+Shift+Esc\tDừng mọi âm thanh ngay lập tức\n"
+            "Ctrl+1 / 2 / 3\tChuyển trang Audio 1-16 / 17-32 / Playlist\n"
+            "F11\tLong View (màn hình lớn)\n"
+            "Ctrl+N / O / S\tDự án mới / Mở / Lưu\n\n"
+            "Playlist: Enter phát bài chọn · Ctrl+→/← bài tiếp/trước · Ctrl+E đặt bài kế tiếp · "
+            "Ctrl+L nghe thử · Delete xóa bài"))
+
+    def show_guide(self):
+        QMessageBox.information(self, "Hướng dẫn", (
+            "• Kéo thả file nhạc từ Explorer vào một kênh, hoặc bấm biểu tượng nốt nhạc / nút lớn của kênh trống.\n"
+            "• Bấm nút lớn (hoặc phím tắt in trên nút) để phát; bấm lại để dừng.\n"
+            "• ‖ tạm dừng / tiếp tục · Dừng: dừng ngay · ◢ bật fade in khi phát · ◣ fade out rồi dừng · 🔁 lặp lại.\n"
+            "• Nút ••• (hoặc chuột phải nút lớn): đổi tên, đổi màu, chọn thiết bị ra riêng, nghe thử, xóa kênh.\n"
+            "• Nháy đúp vào fader để về 80%.\n"
+            "• GO phát lần lượt các kênh có nhạc theo thứ tự; chuột phải GO để chọn kênh tiếp theo.\n"
+            "• Phát đơn: phát kênh mới thì các kênh khác tự fade out.\n"
+            "• Khóa cài đặt: chống đổi nhầm file/cấu hình trong lúc diễn.\n"
+            "• Trang Playlist: phát danh sách dài theo thứ tự, crossfade, dừng sau mỗi bài.\n"
+            "• Dự án (.evp) lưu toàn bộ kênh + playlist. Chương trình tự nhớ trạng thái khi tắt."))
 
     def closeEvent(self, e):
-        if any(d.is_playing() for d in self.decks):
-            if QMessageBox.question(self, "Thoát", "Nhạc đang phát. Thoát chương trình?") != QMessageBox.StandardButton.Yes:
-                e.ignore()
-                return
-        self.save_session()
-        self.save_settings()
+        playing = any(s.deck.is_playing() for s in self.strips) or self.playlist.is_active()
+        if playing and QMessageBox.question(self, "Thoát", "Nhạc đang phát. Thoát chương trình?") \
+                != QMessageBox.StandardButton.Yes:
+            e.ignore()
+            return
+        self.write_autosave()
+        self.settings.setValue("geometry", self.saveGeometry())
+        if self.long_view:
+            self.long_view.close()
         e.accept()
 
 
@@ -886,8 +760,9 @@ def main():
     app.setApplicationName(APP_NAME)
     app.setStyle("Fusion")
     app.setStyleSheet(STYLE)
+    app.setFont(QFont("Segoe UI", 10))
     w = MainWindow()
-    w.show()
+    w.showMaximized()
     sys.exit(app.exec())
 
 

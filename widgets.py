@@ -44,6 +44,12 @@ def shape_icon(kind: str, color="#555555", size=48):
     s = size
     if kind == "play":
         p.drawPolygon(QPolygonF([QPointF(s * .22, s * .15), QPointF(s * .85, s * .5), QPointF(s * .22, s * .85)]))
+    elif kind in ("prev", "next"):
+        pts = [(.3, .2, .75, .5, .3, .8), (.55, .2, 1.0, .5, .55, .8)] if kind == "next" else \
+              [(.7, .2, .25, .5, .7, .8), (.45, .2, .0, .5, .45, .8)]
+        for a, b, c2, d, e, f in pts:
+            p.drawPolygon(QPolygonF([QPointF(s * a, s * b), QPointF(s * c2, s * d), QPointF(s * e, s * f)]))
+        p.drawRect(QRectF(s * (.1 if kind == "prev" else .82), s * .2, s * .08, s * .6))
     elif kind == "stop":
         p.drawRect(QRectF(s * .2, s * .2, s * .6, s * .6))
     elif kind == "pause":
