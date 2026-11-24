@@ -1028,7 +1028,6 @@ def main():
     app = QApplication(sys.argv)
     app.setOrganizationName(APP_NAME)
     app.setApplicationName(APP_NAME)
-    app.setApplicationDisplayName(DISPLAY_NAME)
     app.setWindowIcon(QIcon(asset("app.ico")))
     try:   # để Windows dùng đúng icon của app trên thanh taskbar
         import ctypes
