@@ -47,6 +47,7 @@ class Deck(QObject):
         self.duck = 1.0     # hệ số giảm khi phát jingle
         self.gain = 1.0     # hệ số fade
         self._fade = None   # (gain đầu, gain đích, thời gian ms, hàm gọi khi xong)
+        self._pending = None  # (vị trí bắt đầu, fade in) chờ file nạp xong
         self._clock = QElapsedTimer()
         self._timer = QTimer(self)
         self._timer.setInterval(20)
@@ -116,6 +117,7 @@ class Deck(QObject):
 
     # ---------- điều khiển ----------
     def load(self, path: str):
+        self._pending = None
         self.cancel_fade()
         self.player.stop()
         self.player.setSource(QUrl.fromLocalFile(path))
@@ -132,6 +134,39 @@ class Deck(QObject):
             self._apply()
             self.player.play()
 
+    _READY = (QMediaPlayer.MediaStatus.LoadedMedia, QMediaPlayer.MediaStatus.BufferedMedia,
+              QMediaPlayer.MediaStatus.BufferingMedia, QMediaPlayer.MediaStatus.EndOfMedia)
+
+    def play_from(self, start_ms: int = 0, fade_ms: int = 0):
+        """Phát từ vị trí start_ms. Nếu file chưa nạp xong thì tắt tiếng chờ nạp rồi mới tua,
+        tránh nghe lọt đoạn đầu bài."""
+        if start_ms <= 0:
+            self._pending = None
+            self.play(fade_ms)
+            return
+        if self.player.mediaStatus() in self._READY:
+            self._pending = None
+            self.player.setPosition(start_ms)
+            self.play(fade_ms)
+            return
+        self.cancel_fade()
+        self._pending = (start_ms, fade_ms)
+        self.gain = 0.0
+        self._apply()
+        self.player.play()
+
+    def _apply_pending(self):
+        if self._pending is None:
+            return
+        start_ms, fade_ms = self._pending
+        self._pending = None
+        self.player.setPosition(start_ms)
+        if fade_ms > 0:
+            self.fade_to(1.0, fade_ms)
+        else:
+            self.gain = 1.0
+            self._apply()
+
     def pause(self, fade_ms: int = 0):
         if fade_ms > 0 and self.is_playing():
             self.fade_to(0.0, fade_ms, self.player.pause)
@@ -146,6 +181,7 @@ class Deck(QObject):
             self._hard_stop()
 
     def _hard_stop(self):
+        self._pending = None
         self.cancel_fade()
         self.player.stop()
         self.gain = 1.0
@@ -180,6 +216,8 @@ class Deck(QObject):
 
     # ---------- trạng thái ----------
     def _on_status(self, st):
+        if st in (QMediaPlayer.MediaStatus.LoadedMedia, QMediaPlayer.MediaStatus.BufferedMedia):
+            self._apply_pending()
         if st == QMediaPlayer.MediaStatus.EndOfMedia:
             self.ended.emit()
         elif st == QMediaPlayer.MediaStatus.InvalidMedia:

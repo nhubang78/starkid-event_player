@@ -1,18 +1,17 @@
 """Một kênh phát (channel strip): fader, VU, thời gian, nút cart, điều khiển."""
-import math
 import os
 
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QColor
-from PySide6.QtWidgets import (QColorDialog, QFileDialog, QFrame, QHBoxLayout, QInputDialog,
-                               QLabel, QMenu, QPushButton, QToolButton, QVBoxLayout, QWidget)
-from PySide6.QtMultimedia import QMediaDevices
+from PySide6.QtWidgets import (QFileDialog, QFrame, QHBoxLayout, QLabel, QMenu, QPushButton,
+                               QToolButton, QVBoxLayout, QWidget)
 
 from audio import Deck, find_output_device, percent_to_db
 from playlist import AUDIO_EXT, AUDIO_FILTER, read_meta
-from widgets import CartButton, Fader, SeekSlider, VUMeter, glyph_icon, key_label, shape_icon
+from widgets import CartButton, Fader, SeekSlider, VUMeter, glyph_icon, shape_icon
 
 DEFAULT_FADER = 80
+FADE_STEP, FADE_QUICK_MAX = 0.5, 3.0    # nút fade trên kênh: +0,5 giây mỗi lần bấm, quá 3 giây về tắt
 _icon_cache = {}
 
 
@@ -28,6 +27,10 @@ def hms(ms):
     return f"{s // 3600:02d}:{s % 3600 // 60:02d}:{s % 60:02d}"
 
 
+def fmt_sec(s):
+    return f"{s:g}".replace(".", ",") + " giây"
+
+
 class ChannelStrip(QWidget):
     started = Signal(object)    # kênh vừa bắt đầu phát (cho chế độ Phát đơn)
     changed = Signal()          # cấu hình kênh thay đổi (đánh dấu dự án chưa lưu)
@@ -38,12 +41,18 @@ class ChannelStrip(QWidget):
         self.number, self.hotkey, self.host = number, hotkey, host
         self.deck = Deck(self, meter=True)
         self.deck.stateChanged.connect(self.refresh)
+        self.deck.ended.connect(self.on_ended)
         self.deck.error.connect(lambda m: self.message.emit(f"Kênh {self.number}: {m}"))
         self.path = self.name = self.color = self.device = ""
+        self.mode = "play_stop"     # play_stop | play_pause | retrigger
         self.loop = False
-        self.fade_in = False
+        self.fade_in_s = 0.0
+        self.fade_out_s = 0.0
+        self.start_ms = 0           # đoạn phát: điểm bắt đầu
+        self.end_ms = 0             # đoạn phát: điểm kết thúc (0 = cuối file)
         self.duration = 0
-        self.own_key = ""      # phím phát riêng (bấm ở trang nào cũng phát)
+        self.own_key = ""           # "" = theo phím ô của trang, "-" = không phím, khác = phím riêng
+        self._end_fading = False
         self._last_times = None
         self.last_levels = [0.0, 0.0]
         self.setAcceptDrops(True)
@@ -74,7 +83,8 @@ class ChannelStrip(QWidget):
         self.btn_more.setText("•••")
         self.btn_more.setObjectName("more")
         self.btn_more.setToolTip("Tùy chọn kênh")
-        self.btn_more.clicked.connect(lambda: self.show_menu(self.btn_more.mapToGlobal(self.btn_more.rect().bottomLeft())))
+        self.btn_more.clicked.connect(
+            lambda: self.show_menu(self.btn_more.mapToGlobal(self.btn_more.rect().bottomLeft())))
         for b in (self.btn_file, self.btn_more):
             b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             left.addWidget(b)
@@ -111,7 +121,7 @@ class ChannelStrip(QWidget):
         self.btn_pause.setToolTip("Tạm dừng / tiếp tục")
         self.btn_pause.clicked.connect(self.pause_toggle)
         self.btn_stop = QPushButton("Dừng")
-        self.btn_stop.setToolTip("Dừng ngay")
+        self.btn_stop.setToolTip("Dừng (có fade out nếu đã đặt)")
         self.btn_stop.clicked.connect(lambda: self.stop())
         for b in (self.btn_pause, self.btn_stop):
             b.setObjectName("chBtn")
@@ -127,75 +137,87 @@ class ChannelStrip(QWidget):
         bot = QHBoxLayout()
         bot.setSpacing(0)
 
-        def tb(tip, slot, checkable=False):
+        def tb(tip, slot):
             b = QToolButton()
             b.setAutoRaise(True)
-            b.setCheckable(checkable)
             b.setToolTip(tip)
             b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             b.setObjectName("chIcon")
             b.setIconSize(QSize(13, 13))
-            (b.toggled if checkable else b.clicked).connect(slot)
+            b.clicked.connect(slot)
             bot.addWidget(b)
             return b
 
-        self.b_play = tb("Phát", lambda: self.play())
-        self.b_state = tb("Tạm dừng / Dừng", self.state_clicked)
+        self.b_play = tb("Phát từ đầu đoạn", lambda: self.play(restart=True))
+        self.b_state = tb("Dừng", lambda: self.stop())
         bot.addStretch()
-        self.b_loop = tb("Lặp lại liên tục", self.set_loop, True)
+        self.b_loop = tb("", self.toggle_loop)
         bot.addStretch()
-        self.b_fin = tb("Fade in khi bắt đầu phát", self.set_fade_in, True)
+        self.b_fin = tb("", lambda: self.bump_fade("in"))
         bot.addStretch()
-        self.b_fout = tb("Fade out rồi dừng", self.fade_out)
+        self.b_fout = tb("", lambda: self.bump_fade("out"))
         v.addLayout(bot)
 
         self.on_fader(DEFAULT_FADER, emit=False)
         self.refresh()
 
-    # ================= trạng thái / hiển thị =================
+    # ================= thông tin =================
     def display_name(self):
         return self.name or os.path.splitext(os.path.basename(self.path))[0]
+
+    def seg_end(self):
+        """Điểm kết thúc thực tế (ms)."""
+        dur = self.deck.duration() or self.duration
+        return min(self.end_ms, dur) if self.end_ms and dur else (self.end_ms or dur)
+
+    def seg_len(self):
+        return max(0, self.seg_end() - self.start_ms)
+
+    def remaining_ms(self):
+        return max(0, self.seg_end() - self.deck.position())
+
+    def manual_loop(self):
+        return self.loop and (self.start_ms > 0 or self.end_ms > 0)
 
     def cart_color(self):
         if not self.path:
             return "#efefef"
         if self.deck.is_playing():
-            return QColor(self.color).lighter(115).name() if self.color else "#fbd5e5"
+            return QColor(self.color).darker(108).name() if self.color else "#fbd5e5"
         if self.deck.is_paused():
             return "#fde68a"
         return self.color or "#ffffff"
 
+    # ================= hiển thị =================
     def refresh(self):
         loaded = bool(self.path)
         playing, paused = self.deck.is_playing(), self.deck.is_paused()
         dim, dark, green = "#b5b5b5", "#555555", "#16a34a"
-        self.b_play.setIcon(icon("play", green if playing else (dark if loaded else dim)))
-        self.b_state.setIcon(icon("pause" if playing or paused else "stop",
-                                  green if (playing or paused) else (dark if loaded else dim)))
-        self.b_loop.setIcon(icon("loop", green if self.loop else (dark if loaded else dim)))
-        self.b_fin.setIcon(icon("fadein", green if self.fade_in else (dark if loaded else dim)))
-        self.b_fout.setIcon(icon("fadeout", dark if loaded else dim))
-        self.b_loop.blockSignals(True)
-        self.b_loop.setChecked(self.loop)
-        self.b_loop.blockSignals(False)
-        self.b_fin.blockSignals(True)
-        self.b_fin.setChecked(self.fade_in)
-        self.b_fin.blockSignals(False)
-        for w in (self.btn_pause, self.btn_stop, self.seek, self.b_play, self.b_state, self.b_fout):
+        base = dark if loaded else dim
+        self.b_play.setIcon(icon("play", green if playing else base))
+        self.b_state.setIcon(icon("pause" if paused else "stop", green if (playing or paused) else base))
+        self.b_loop.setIcon(icon("loop", green if self.loop else base))
+        self.b_fin.setIcon(icon("fadein", green if self.fade_in_s > 0 else base))
+        self.b_fout.setIcon(icon("fadeout", green if self.fade_out_s > 0 else base))
+        self.b_loop.setToolTip("Lặp: " + ("đang bật" if self.loop else "đang tắt") + ". Bấm để bật/tắt.")
+        for b, s, what in ((self.b_fin, self.fade_in_s, "Fade in (to dần lúc phát)"),
+                           (self.b_fout, self.fade_out_s, "Fade out (nhỏ dần lúc dừng)")):
+            b.setToolTip(f"{what}: {'đang tắt' if s <= 0 else fmt_sec(s)}.\n"
+                         f"Bấm để tăng 0,5 giây, quá 3 giây về tắt.\n"
+                         f"Muốn dài hơn 3 giây vào Cài đặt kênh.")
+        for w in (self.btn_pause, self.btn_stop, self.seek, self.b_play, self.b_state):
             w.setEnabled(loaded)
         self.btn_pause.setProperty("active", paused)
         self.btn_pause.style().unpolish(self.btn_pause)
         self.btn_pause.style().polish(self.btn_pause)
-        locked = self.host.locked
-        self.btn_file.setEnabled(not locked)
         for lb in (self.lbl_level, self.lbl_elapsed, self.lbl_time2):
             lb.setProperty("dim", not loaded)
             lb.style().unpolish(lb)
             lb.style().polish(lb)
         if not (playing or paused):
             self.lbl_elapsed.setText("00:00:00")
-            self.lbl_time2.setText(hms(self.duration))
-            self.seek.setValue(0)
+            self.lbl_time2.setText(hms(self.seg_len()))
+            self.seek.setValue(self.seek.minimum())
             self._last_times = None
         self.cart.update()
 
@@ -204,14 +226,27 @@ class ChannelStrip(QWidget):
         self.meter.set_levels(pre)
         if not (self.deck.is_playing() or self.deck.is_paused()):
             return
-        pos, dur = self.deck.position(), self.deck.duration() or self.duration
-        times = (pos // 1000, (dur - pos) // 1000)
+        pos = self.deck.position()
+        end = self.seg_end()
+        if self.deck.is_playing() and not self.deck._pending and end:
+            if self.end_ms and pos >= end - 10:            # tới điểm kết thúc tự đặt
+                if self.loop:
+                    self.deck.player.setPosition(self.start_ms)
+                    self._end_fading = False
+                else:
+                    self.deck.stop()
+                    return
+            elif (self.fade_out_s > 0 and not self.loop and not self._end_fading
+                  and not self.deck.fading_out() and end - pos <= self.fade_out_s * 1000):
+                self._end_fading = True                    # nhỏ dần trước khi hết đoạn
+                self.deck.fade_to(0.0, max(1, end - pos))
+        times = ((pos - self.start_ms) // 1000, (end - pos) // 1000)
         if times != self._last_times:
             self._last_times = times
-            self.lbl_elapsed.setText(hms(pos))
-            self.lbl_time2.setText("-" + hms(max(0, dur - pos)))
+            self.lbl_elapsed.setText(hms(pos - self.start_ms))
+            self.lbl_time2.setText("-" + hms(max(0, end - pos)))
         if not self.seek.isSliderDown():
-            self.seek.setMaximum(max(1, dur))
+            self.seek.setRange(self.start_ms, max(self.start_ms + 1, end))
             self.seek.setValue(pos)
 
     def on_fader(self, val, emit=True):
@@ -236,24 +271,41 @@ class ChannelStrip(QWidget):
             if not self.host.locked:
                 self.choose_file()
             return
-        if self.deck.is_playing():
-            self.stop(150)
-        else:
-            self.play()
+        playing = self.deck.is_playing()
+        if self.mode == "retrigger":
+            self.play(restart=True)
+        elif self.mode == "play_pause":
+            if playing:
+                self.deck.pause(self.host.cfg["pause_fade_ms"])
+            else:
+                self.play()
+        else:  # play_stop
+            if playing and not self.deck.fading_out():
+                self.stop()
+            elif playing:
+                self.stop_now()        # bấm lần 2 khi đang fade out = dừng ngay
+            else:
+                self.play()
 
-    def play(self):
+    def play(self, restart=False):
         if not self.path:
             return
-        if self.deck.is_paused():
+        if self.deck.is_paused() and not restart:
             self.deck.play(self.host.cfg["pause_fade_ms"])
             return
         if not os.path.isfile(self.path):
             self.message.emit(f"Kênh {self.number}: không tìm thấy file {self.path}")
             return
         self.deck.load(self.path)
-        self.deck.player.setLoops(-1 if self.loop else 1)
-        self.deck.play(self.host.cfg["cart_fade_in_ms"] if self.fade_in else 0)
+        self.deck.player.setLoops(-1 if (self.loop and not self.manual_loop()) else 1)
+        self._end_fading = False
+        self.deck.play_from(self.start_ms, int(self.fade_in_s * 1000))
         self.started.emit(self)
+
+    def on_ended(self):
+        if self.manual_loop():                 # lặp đoạn có điểm đầu: phát lại từ điểm đầu
+            self._end_fading = False
+            self.deck.play_from(self.start_ms)
 
     def pause_toggle(self):
         if self.deck.is_playing():
@@ -261,34 +313,41 @@ class ChannelStrip(QWidget):
         elif self.deck.is_paused():
             self.deck.play(self.host.cfg["pause_fade_ms"])
 
-    def state_clicked(self):
-        if self.deck.is_playing() or self.deck.is_paused():
-            self.pause_toggle()
+    def stop(self, fade_ms=None):
+        """Dừng; mặc định dùng fade out của kênh."""
+        if fade_ms is None:
+            fade_ms = int(self.fade_out_s * 1000)
+        self.deck.stop(fade_ms if self.deck.is_playing() else 0)
 
-    def stop(self, fade_ms=0):
-        self.deck.stop(fade_ms)
-
-    def fade_out(self):
-        if self.deck.is_playing():
-            self.deck.stop(self.host.cfg["cart_fade_out_ms"])
-        else:
-            self.deck.stop()
+    def stop_now(self):
+        self.deck.stop()
 
     def seek_to(self, ms):
         if self.deck.is_playing() or self.deck.is_paused():
             self.deck.player.setPosition(ms)
+            self._end_fading = False
+            if self.deck.gain < 1 and not self.deck.fading_out():
+                self.deck.gain = 1.0
+                self.deck._apply()
 
-    def set_loop(self, on):
-        self.loop = on
+    def toggle_loop(self):
+        self.loop = not self.loop
         if self.deck.is_playing() or self.deck.is_paused():
-            self.deck.player.setLoops(-1 if on else 1)
+            self.deck.player.setLoops(-1 if (self.loop and not self.manual_loop()) else 1)
         self.refresh()
         self.changed.emit()
 
-    def set_fade_in(self, on):
-        self.fade_in = on
+    def bump_fade(self, which):
+        cur = self.fade_in_s if which == "in" else self.fade_out_s
+        new = 0.0 if cur >= FADE_QUICK_MAX else round(cur + FADE_STEP, 1)
+        if which == "in":
+            self.fade_in_s = new
+        else:
+            self.fade_out_s = new
         self.refresh()
         self.changed.emit()
+        what = "Fade in" if which == "in" else "Fade out"
+        self.message.emit(f"Kênh {self.number}: {what} " + ("tắt" if new <= 0 else fmt_sec(new)))
 
     def set_bus(self, b):
         self.deck.set_bus(b)
@@ -298,10 +357,17 @@ class ChannelStrip(QWidget):
 
     # ================= cấu hình kênh =================
     def set_file(self, path):
+        was_empty = not self.path
         self.deck.stop()
         self.path = path
         self.name = os.path.splitext(os.path.basename(path))[0]
         self.duration = read_meta(path)[2]
+        self.start_ms = self.end_ms = 0
+        if was_empty:                          # kênh trống: áp dụng mặc định (*)
+            d = self.host.channel_defaults()
+            self.mode = d.get("mode", self.mode)
+            self.fade_in_s = float(d.get("fade_in", self.fade_in_s))
+            self.fade_out_s = float(d.get("fade_out", self.fade_out_s))
         self.refresh()
         self.changed.emit()
 
@@ -315,72 +381,38 @@ class ChannelStrip(QWidget):
             self.set_file(path)
 
     def show_menu(self, gpos):
+        if self.host.locked:
+            return
         m = QMenu(self)
-        locked = self.host.locked
-        if self.path:
-            m.addAction("🎧  Nghe thử ra tai nghe", lambda: self.host.prelisten_file(self.path, self.display_name()))
-            m.addSeparator()
-        for text, slot, need in (("Chọn file...", self.choose_file, False),
-                                 ("Đổi tên hiển thị...", self.rename, True),
-                                 ("Đổi màu nút...", self.pick_color, True),
-                                 ("Bỏ màu nút", self.clear_color, True)):
-            a = m.addAction(text, slot)
-            a.setEnabled(not locked and (self.path != "" or not need))
-        a = m.addAction(f"Phím phát riêng...  [{key_label(self.own_key, 'chưa gán')}]",
-                        lambda: self.host.edit_channel_key(self))
-        a.setEnabled(not locked)
-        dm = m.addMenu("Thiết bị ra")
-        dm.setEnabled(not locked)
-        names = [""] + [d.description() for d in QMediaDevices.audioOutputs()]
-        for n in names:
-            a = dm.addAction(n or "(Theo cài đặt chung)")
-            a.setCheckable(True)
-            a.setChecked(n == self.device)
-            a.triggered.connect(lambda _c=False, n=n: self.set_device(n))
+        loaded = bool(self.path)
+        m.addAction("Cài đặt kênh...", lambda: self.host.open_channel_settings(self))
+        m.addAction("Chọn file...", self.choose_file)
+        a = m.addAction("Thêm vào playlist", lambda: self.host.add_to_playlist(self.path))
+        a.setEnabled(loaded)
         m.addSeparator()
-        if self.path:
-            m.addAction("Mở thư mục chứa file", lambda: os.startfile(os.path.dirname(self.path))
-                        if os.path.isdir(os.path.dirname(self.path)) else None)
-        a = m.addAction("Xóa kênh", self.clear)
-        a.setEnabled(not locked and bool(self.path))
+        for text, fn in (("Phát từ đầu", lambda: self.play(restart=True)), ("Dừng", lambda: self.stop()),
+                         ("Dừng ngay (bỏ fade)", self.stop_now)):
+            a = m.addAction(text, fn)
+            a.setEnabled(loaded)
+        m.addSeparator()
+        a = m.addAction("Bỏ file khỏi kênh", self.clear)
+        a.setEnabled(loaded)
         m.exec(gpos)
-
-    def set_device(self, name):
-        self.device = name
-        self.apply_device()
-        self.changed.emit()
-
-    def rename(self):
-        name, ok = QInputDialog.getText(self, "Đổi tên", f"Tên hiển thị kênh {self.number}:", text=self.display_name())
-        if ok:
-            self.name = name.strip()
-            self.refresh()
-            self.changed.emit()
-
-    def pick_color(self):
-        c = QColorDialog.getColor(QColor(self.color or "#ffffff"), self, "Màu nút")
-        if c.isValid():
-            self.color = c.name()
-            self.refresh()
-            self.changed.emit()
-
-    def clear_color(self):
-        self.color = ""
-        self.refresh()
-        self.changed.emit()
 
     def clear(self):
         self.deck.stop()
         self.path = self.name = self.color = ""
-        self.loop = self.fade_in = False
+        self.loop = False
+        self.start_ms = self.end_ms = 0
         self.duration = 0
-        self.fader.setValue(DEFAULT_FADER)
         self.refresh()
         self.changed.emit()
 
     def to_dict(self):
         return {"path": self.path, "name": self.name, "color": self.color, "loop": self.loop,
-                "fade_in": self.fade_in, "volume": self.fader.value(), "device": self.device,
+                "mode": self.mode, "fade_in_s": self.fade_in_s, "fade_out_s": self.fade_out_s,
+                "start_ms": self.start_ms, "end_ms": self.end_ms,
+                "volume": self.fader.value(), "device": self.device,
                 "duration": self.duration, "key": self.own_key}
 
     def from_dict(self, d):
@@ -389,7 +421,12 @@ class ChannelStrip(QWidget):
         self.name = d.get("name", "")
         self.color = d.get("color", "")
         self.loop = bool(d.get("loop", False))
-        self.fade_in = bool(d.get("fade_in", False))
+        self.mode = d.get("mode", "play_stop")
+        # tương thích dự án cũ: "fade_in" kiểu bật/tắt = 2 giây
+        self.fade_in_s = float(d.get("fade_in_s", 2.0 if d.get("fade_in") is True else 0.0))
+        self.fade_out_s = float(d.get("fade_out_s", 0.0))
+        self.start_ms = int(d.get("start_ms", 0))
+        self.end_ms = int(d.get("end_ms", 0))
         self.device = d.get("device", "")
         self.own_key = d.get("key", "")
         self.duration = int(d.get("duration", 0))

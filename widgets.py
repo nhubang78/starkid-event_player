@@ -232,6 +232,8 @@ class KeyCaptureEdit(QPushButton):
     _MODS = (Qt.Key.Key_Shift, Qt.Key.Key_Control, Qt.Key.Key_Alt, Qt.Key.Key_Meta,
              Qt.Key.Key_AltGr, Qt.Key.Key_unknown, Qt.Key.Key_Tab, Qt.Key.Key_Backtab)
 
+    CLEARED = ""   # giá trị khi bấm Backspace
+
     def __init__(self, seq="", parent=None):
         super().__init__(parent)
         self.setObjectName("keyEdit")
@@ -240,9 +242,12 @@ class KeyCaptureEdit(QPushButton):
         self.setMinimumWidth(200)
         self.set_seq(seq)
 
+    def display(self, seq):
+        return key_label(seq)
+
     def set_seq(self, seq):
         self.seq = seq
-        self.setText("Bấm phím..." if self.hasFocus() else key_label(seq))
+        self.setText("Bấm phím..." if self.hasFocus() else self.display(seq))
 
     def focusInEvent(self, e):
         super().focusInEvent(e)
@@ -250,7 +255,7 @@ class KeyCaptureEdit(QPushButton):
 
     def focusOutEvent(self, e):
         super().focusOutEvent(e)
-        self.setText(key_label(self.seq))
+        self.setText(self.display(self.seq))
 
     def keyPressEvent(self, e):
         k = e.key()
@@ -259,7 +264,7 @@ class KeyCaptureEdit(QPushButton):
         mods = e.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier
                                 | Qt.KeyboardModifier.ShiftModifier | Qt.KeyboardModifier.MetaModifier)
         if k == Qt.Key.Key_Backspace and not mods:
-            new = ""
+            new = self.CLEARED
         else:
             from PySide6.QtCore import QKeyCombination
             from PySide6.QtGui import QKeySequence
@@ -268,7 +273,7 @@ class KeyCaptureEdit(QPushButton):
         e.accept()
         self.seq = new
         self.clearFocus()
-        self.setText(key_label(new))
+        self.setText(self.display(new))
         self.changed.emit(new)
 
     def keyReleaseEvent(self, e):
