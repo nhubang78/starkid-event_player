@@ -26,7 +26,7 @@ HOTKEYS = (list("12345678") + ["9", "0", "Q", "W", "E", "R", "T", "Y"]
 
 DEFAULT_CFG = {
     "cart_device": "", "main_device": "", "pre_device": "",
-    "cart_fade_in_ms": 2000, "cart_fade_out_ms": 3000, "single_fade_ms": 1000,
+    "cart_fade_in_ms": 2000, "cart_fade_out_ms": 3000, "single_fade_ms": 0,
     "fade_in_ms": 0, "fade_out_ms": 3000, "pause_fade_ms": 200, "warn_sec": 10,
 }
 
@@ -123,7 +123,7 @@ class SettingsDialog(QDialog):
         dev("pre_device", "Tai nghe nghe thử:")
         spin("cart_fade_in_ms", "Kênh — thời gian fade in:", 20000, 250, " ms")
         spin("cart_fade_out_ms", "Kênh — thời gian fade out:", 20000, 250, " ms")
-        spin("single_fade_ms", "Phát đơn — fade kênh cũ:", 10000, 100, " ms")
+        spin("single_fade_ms", "Phát đơn — fade kênh cũ (0 = dừng ngay):", 10000, 100, " ms")
         spin("fade_in_ms", "Playlist — fade in đầu bài:", 10000, 100, " ms")
         spin("fade_out_ms", "Playlist — fade out khi dừng:", 20000, 250, " ms")
         spin("pause_fade_ms", "Fade khi tạm dừng/tiếp tục:", 3000, 50, " ms")
@@ -209,6 +209,7 @@ class MainWindow(QMainWindow):
         self.pre = Deck(self)
         self.pre_title = ""
         self.long_view = None
+        self.last_started = None
 
         self.build_ui()
         self.build_menu()
@@ -429,6 +430,17 @@ class MainWindow(QMainWindow):
     def set_single(self, on):
         self.single = on
         self.act_single.setChecked(on)
+        if on and not self._loading:
+            # bật Phát đơn khi đang có nhiều nguồn phát: chỉ giữ nguồn phát sau cùng
+            keep = self.last_started
+            if keep is self.playlist:
+                self.stop_others(stop_playlist=False)
+            elif keep is not None and keep.deck.is_playing():
+                self.stop_others(keep=keep)
+            else:
+                playing = [s for s in self.strips if s.deck.is_playing()]
+                self.stop_others(keep=playing[-1] if playing else None,
+                                 stop_playlist=bool(playing))
         self.mark_dirty()
 
     def set_locked(self, on):
@@ -440,19 +452,25 @@ class MainWindow(QMainWindow):
         for s in self.strips:
             s.refresh()
 
+    def stop_others(self, keep=None, stop_playlist=True):
+        """Phát đơn: dừng mọi kênh khác (đang phát hoặc tạm dừng)."""
+        fade = self.cfg["single_fade_ms"]
+        for s in self.strips:
+            if s is not keep and (s.deck.is_playing() or s.deck.is_paused()):
+                s.stop(fade if s.deck.is_playing() else 0)
+        if stop_playlist and (self.playlist.is_active() or self.playlist.deck.is_paused()):
+            for d in self.playlist.decks:
+                d.stop(fade if d.is_playing() else 0)
+
     def on_strip_started(self, strip):
+        self.last_started = strip
         if self.single:
-            for s in self.strips:
-                if s is not strip and s.deck.is_playing():
-                    s.stop(self.cfg["single_fade_ms"])
-            if self.playlist.is_active():
-                self.playlist.stop_main(self.cfg["single_fade_ms"])
+            self.stop_others(keep=strip)
 
     def on_playlist_started(self):
+        self.last_started = self.playlist
         if self.single:
-            for s in self.strips:
-                if s.deck.is_playing():
-                    s.stop(self.cfg["single_fade_ms"])
+            self.stop_others(stop_playlist=False)
 
     # ---------- GO ----------
     def loaded_numbers(self):
