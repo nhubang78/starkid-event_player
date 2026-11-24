@@ -8,9 +8,9 @@ from PySide6.QtWidgets import (QColorDialog, QFileDialog, QFrame, QHBoxLayout, Q
                                QLabel, QMenu, QPushButton, QToolButton, QVBoxLayout, QWidget)
 from PySide6.QtMultimedia import QMediaDevices
 
-from audio import Deck, find_output_device
+from audio import Deck, find_output_device, percent_to_db
 from playlist import AUDIO_EXT, AUDIO_FILTER, read_meta
-from widgets import CartButton, Fader, SeekSlider, VUMeter, glyph_icon, shape_icon
+from widgets import CartButton, Fader, SeekSlider, VUMeter, glyph_icon, key_label, shape_icon
 
 DEFAULT_FADER = 80
 _icon_cache = {}
@@ -43,6 +43,7 @@ class ChannelStrip(QWidget):
         self.loop = False
         self.fade_in = False
         self.duration = 0
+        self.own_key = ""      # phím phát riêng (bấm ở trang nào cũng phát)
         self._last_times = None
         self.last_levels = [0.0, 0.0]
         self.setAcceptDrops(True)
@@ -215,12 +216,19 @@ class ChannelStrip(QWidget):
 
     def on_fader(self, val, emit=True):
         self.deck.set_master(val / 100)
-        db = 40 * math.log10(val / 100) if val > 0 else None
+        db = percent_to_db(val / 100)
         dbt = f"{db:+.1f} dB" if db is not None else "-∞ dB"
         self.lbl_level.setText(f"<span style='font-size:9.5pt'>{val}%</span>&nbsp;&nbsp;"
                                f"<span style='font-size:8pt'>{dbt}</span>")
+        self.update_out_tip()
         if emit:
             self.changed.emit()
+
+    def update_out_tip(self):
+        out = self.fader.value() * self.deck.bus
+        db = percent_to_db(out / 100)
+        self.lbl_level.setToolTip(f"Mức ra loa = kênh {self.fader.value()}% × Master {round(self.deck.bus * 100)}%"
+                                  f" = {out:.0f}%" + (f"  ({db:+.1f} dB)" if db is not None else ""))
 
     # ================= điều khiển =================
     def cart_clicked(self):
@@ -318,6 +326,9 @@ class ChannelStrip(QWidget):
                                  ("Bỏ màu nút", self.clear_color, True)):
             a = m.addAction(text, slot)
             a.setEnabled(not locked and (self.path != "" or not need))
+        a = m.addAction(f"Phím phát riêng...  [{key_label(self.own_key, 'chưa gán')}]",
+                        lambda: self.host.edit_channel_key(self))
+        a.setEnabled(not locked)
         dm = m.addMenu("Thiết bị ra")
         dm.setEnabled(not locked)
         names = [""] + [d.description() for d in QMediaDevices.audioOutputs()]
@@ -370,7 +381,7 @@ class ChannelStrip(QWidget):
     def to_dict(self):
         return {"path": self.path, "name": self.name, "color": self.color, "loop": self.loop,
                 "fade_in": self.fade_in, "volume": self.fader.value(), "device": self.device,
-                "duration": self.duration}
+                "duration": self.duration, "key": self.own_key}
 
     def from_dict(self, d):
         self.deck.stop()
@@ -380,6 +391,7 @@ class ChannelStrip(QWidget):
         self.loop = bool(d.get("loop", False))
         self.fade_in = bool(d.get("fade_in", False))
         self.device = d.get("device", "")
+        self.own_key = d.get("key", "")
         self.duration = int(d.get("duration", 0))
         if self.path and not self.duration and os.path.isfile(self.path):
             self.duration = read_meta(self.path)[2]

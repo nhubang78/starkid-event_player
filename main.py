@@ -12,17 +12,17 @@ from PySide6.QtWidgets import (QApplication, QButtonGroup, QComboBox, QDialog, Q
                                QWidget)
 from PySide6.QtMultimedia import QMediaDevices
 
-from audio import Deck, find_output_device
+from audio import Deck, find_output_device, percent_to_db
 from channel import ChannelStrip, hms
 from playlist_page import PlaylistPage
-from widgets import Fader, VUMeter, glyph_icon, shape_icon
+from shortcuts import DEFAULT_KEYS, NAV_KEYS, ChannelKeyDialog, ShortcutDialog
+from shortcuts import LABELS as SHORTCUT_LABELS
+from widgets import Fader, VUMeter, glyph_icon, key_label, shape_icon
 
 APP_NAME = "EventPlayer"
 VERSION = "2.0"
 PROJECT_EXT = ".evp"
 CHANNELS = 32
-HOTKEYS = (list("12345678") + ["9", "0", "Q", "W", "E", "R", "T", "Y"]
-           + list("UIOPASDFGHJKLZXC"))
 
 DEFAULT_CFG = {
     "cart_device": "", "main_device": "", "pre_device": "",
@@ -210,6 +210,13 @@ class MainWindow(QMainWindow):
         self.pre_title = ""
         self.long_view = None
         self.last_started = None
+        self.last_cart_page = 0
+        self._shortcuts = []
+        self.keys = dict(DEFAULT_KEYS)
+        try:
+            self.keys.update(json.loads(self.settings.value("shortcuts", "{}")))
+        except (TypeError, ValueError):
+            pass
 
         self.build_ui()
         self.build_menu()
@@ -284,14 +291,14 @@ class MainWindow(QMainWindow):
         tool("Lưu", glyph_icon("\uE74E", g), self.save_project)
         sep()
         tool("Tùy chọn", glyph_icon("\uE713", g), self.open_settings)
-        tool("Phím tắt", glyph_icon("\uE765", g), self.show_shortcuts)
+        tool("Phím tắt", glyph_icon("\uE765", g), self.open_shortcuts)
         tool("Hướng dẫn", glyph_icon("\uE897", g), self.show_guide)
         sep()
         self.btn_single = tool("Phát đơn", shape_icon("single", g), self.set_single, True,
                                "Phát đơn: khi phát một kênh, các kênh khác tự fade out")
         self.btn_single.setProperty("accent", True)
         tl.addStretch(2)
-        tool("Long View", glyph_icon("\uE7F4", g), self.toggle_long_view, tip="Màn hình lớn (F11)")
+        tool("Long View", glyph_icon("\uE7F4", g), self.toggle_long_view, tip="Màn hình lớn")
         tool("Dừng hết", shape_icon("stopall", "#dc2626"), self.stop_all,
              tip="Dừng tất cả (Esc). Bấm 2 lần = dừng ngay")
         self.btn_lock = tool("Khóa cài đặt", glyph_icon("\uE785", g), self.set_locked, True,
@@ -316,7 +323,7 @@ class MainWindow(QMainWindow):
             grid.setVerticalSpacing(10)
             for k in range(16):
                 n = page * 16 + k + 1
-                s = ChannelStrip(n, HOTKEYS[n - 1], self)
+                s = ChannelStrip(n, "", self)
                 s.started.connect(self.on_strip_started)
                 s.changed.connect(self.mark_dirty)
                 s.message.connect(lambda m: self.statusBar().showMessage(m, 6000))
@@ -393,9 +400,10 @@ class MainWindow(QMainWindow):
         for i, t in enumerate(("Audio 1-16", "Audio 17-32", "Playlist")):
             m.addAction(t, lambda i=i: self.show_page(i), QKeySequence(f"Ctrl+{i + 1}"))
         m.addSeparator()
-        m.addAction("Long View", self.toggle_long_view, QKeySequence("F11"))
+        m.addAction("Long View", self.toggle_long_view)
         m = mb.addMenu("Tùy chỉnh")
         m.addAction("Tùy chọn...", self.open_settings)
+        m.addAction("Bảng phím tắt...", self.open_shortcuts)
         self.act_single = m.addAction("Phát đơn")
         self.act_single.setCheckable(True)
         self.act_single.toggled.connect(self.btn_single.setChecked)
@@ -403,28 +411,130 @@ class MainWindow(QMainWindow):
         self.act_lock.setCheckable(True)
         self.act_lock.toggled.connect(self.btn_lock.setChecked)
         m = mb.addMenu("Trợ giúp")
-        m.addAction("Phím tắt", self.show_shortcuts)
+        m.addAction("Bảng phím tắt...", self.open_shortcuts)
         m.addAction("Hướng dẫn", self.show_guide)
 
+    FIXED_KEYS = ("Ctrl+Shift+Esc", "Ctrl+Right", "Ctrl+Left", "Ctrl+E", "Ctrl+L")
+
     def build_shortcuts(self):
-        def sc(key, fn):
+        """Phím cố định (không chỉnh trong bảng phím tắt)."""
+        for key, fn in zip(self.FIXED_KEYS, (self.panic, self.playlist.next_track, self.playlist.prev_track,
+                                             self.playlist.cue_selected, self.playlist.prelisten_selected)):
             s = QShortcut(QKeySequence(key), self)
             s.activated.connect(fn)
+        self.apply_shortcuts()
 
+    def apply_shortcuts(self):
+        """Tạo lại các phím tắt chỉnh được: thao tác chung, 16 ô kênh, phím riêng từng kênh."""
+        for s, _seq in self._shortcuts:
+            s.setEnabled(False)
+            s.setParent(None)
+            s.deleteLater()
+        self._shortcuts = []
+        handlers = {"go": self.go_pressed, "stop_all": self.stop_all, "stop_cues": self.stop_cues,
+                    "go_prev": lambda: self.go_cursor(-1), "go_next": lambda: self.go_cursor(1),
+                    "long_view": self.toggle_long_view}
+        for i in range(1, 17):
+            handlers[f"slot{i}"] = lambda i=i: self.slot_pressed(i)
+        own = {s.own_key for s in self.strips if s.own_key}
+        for act, fn in handlers.items():
+            seq = self.keys.get(act, "")
+            if seq and seq not in own:          # phím riêng của kênh được ưu tiên
+                self._add_shortcut(seq, fn)
         for s in self.strips:
-            sc(s.hotkey, s.cart_clicked)
-        sc(Qt.Key.Key_Space, self.space_pressed)
-        sc(Qt.Key.Key_Escape, self.escape_pressed)
-        sc("Ctrl+Shift+Esc", self.panic)
-        sc("Ctrl+Right", self.playlist.next_track)
-        sc("Ctrl+Left", self.playlist.prev_track)
-        sc("Ctrl+E", self.playlist.cue_selected)
-        sc("Ctrl+L", self.playlist.prelisten_selected)
+            if s.own_key:
+                self._add_shortcut(s.own_key, s.cart_clicked)
+            slot_key = self.keys.get(f"slot{(s.number - 1) % 16 + 1}", "")
+            s.hotkey = key_label(s.own_key or slot_key, "")
+            s.cart.update()
+        self.update_shortcut_enabled()
+
+    def _add_shortcut(self, seq, fn):
+        sc = QShortcut(QKeySequence(seq), self)
+        sc.activated.connect(fn)
+        self._shortcuts.append((sc, seq))
+
+    def update_shortcut_enabled(self):
+        on_playlist = self.stack.currentIndex() == 2
+        for sc, seq in self._shortcuts:
+            sc.setEnabled(not (on_playlist and seq in NAV_KEYS))
+
+    def open_shortcuts(self):
+        dlg = ShortcutDialog(self, self.keys, {s.number: s.own_key for s in self.strips if s.own_key})
+        if not dlg.exec():
+            return
+        self.keys = dlg.values()
+        self.settings.setValue("shortcuts", json.dumps(self.keys))
+        changed = False
+        for s in self.strips:
+            if s.own_key and dlg.channel_keys.get(s.number, s.own_key) != s.own_key:
+                s.own_key = dlg.channel_keys[s.number]
+                changed = True
+        if changed:
+            self.mark_dirty()
+        self.apply_shortcuts()
+        self.statusBar().showMessage("Đã lưu bảng phím tắt", 3000)
+
+    def edit_channel_key(self, strip):
+        dlg = ChannelKeyDialog(self, strip.number, strip.own_key)
+        if not dlg.exec():
+            return
+        seq = dlg.value()
+        if seq:
+            if seq in self.FIXED_KEYS:
+                QMessageBox.warning(self, "Phím tắt", f"Phím {key_label(seq)} là phím cố định của chương trình.")
+                return
+            for other in self.strips:
+                if other is not strip and other.own_key == seq:
+                    other.own_key = ""
+            for act, k in self.keys.items():
+                if k == seq:
+                    if QMessageBox.question(
+                            self, "Phím tắt",
+                            f"Phím {key_label(seq)} đang dùng cho “{SHORTCUT_LABELS[act]}”.\n"
+                            f"Chuyển phím này sang Kênh {strip.number}?") != QMessageBox.StandardButton.Yes:
+                        return
+                    self.keys[act] = ""
+                    self.settings.setValue("shortcuts", json.dumps(self.keys))
+        strip.own_key = seq
+        self.mark_dirty()
+        self.apply_shortcuts()
+
+    # ---------- xử lý phím ----------
+    def cart_page(self):
+        i = self.stack.currentIndex()
+        return i if i < 2 else self.last_cart_page
+
+    def slot_pressed(self, i):
+        self.strips[self.cart_page() * 16 + i - 1].cart_clicked()
+
+    def go_pressed(self):
+        if self.stack.currentIndex() == 2:
+            self.playlist.play_pause()     # trang Playlist: phím GO = phát/tạm dừng danh sách
+        else:
+            self.go()
+
+    def stop_cues(self):
+        """Dừng tất cả kênh (cue); Playlist vẫn phát."""
+        for s in self.strips:
+            s.stop()
+
+    def go_cursor(self, delta):
+        nums = self.loaded_numbers()
+        if not nums:
+            return
+        self.update_go()
+        i = nums.index(self.go_next)
+        self.go_next = nums[(i + delta) % len(nums)]
+        self.update_go()
 
     # ================= TRANG / CHẾ ĐỘ =================
     def show_page(self, i):
         self.stack.setCurrentIndex(i)
         self.pg_buttons[i].setChecked(True)
+        if i < 2:
+            self.last_cart_page = i
+        self.update_shortcut_enabled()
         self.statusBar().clearMessage()
 
     def set_single(self, on):
@@ -503,19 +613,6 @@ class MainWindow(QMainWindow):
             m.addAction("(Chưa có kênh nào có nhạc)").setEnabled(False)
         m.exec(self.btn_go.mapToGlobal(pos))
 
-    # ---------- phím ----------
-    def space_pressed(self):
-        if self.stack.currentIndex() == 2:
-            self.playlist.play_pause()
-        else:
-            self.go()
-
-    def escape_pressed(self):
-        if self.stack.currentIndex() == 2:
-            self.playlist.stop_main()
-        else:
-            self.stop_all()
-
     def stop_all(self):
         decks = [s.deck for s in self.strips] + self.playlist.decks
         if any(d.fading_out() for d in decks):
@@ -535,9 +632,11 @@ class MainWindow(QMainWindow):
 
     # ---------- master / thiết bị ----------
     def on_master(self, v):
-        self.lbl_master.setText(f"{v}%")
+        db = percent_to_db(v / 100)
+        self.lbl_master.setText(f"{v}%  " + (f"{db:+.1f} dB" if db is not None else "-∞ dB"))
         for s in self.strips:
             s.set_bus(v / 100)
+            s.update_out_tip()
         self.playlist.set_bus(v / 100)
         self.mark_dirty()
 
@@ -633,6 +732,7 @@ class MainWindow(QMainWindow):
         finally:
             self._loading = False
         self.update_go()
+        self.apply_shortcuts()
 
     def confirm_discard(self):
         if not self.dirty:
@@ -761,24 +861,10 @@ class MainWindow(QMainWindow):
             pass
 
     # ================= TRỢ GIÚP =================
-    def show_shortcuts(self):
-        keys = "  ".join(f"{s.hotkey}={s.number}" for s in self.strips[:16])
-        keys2 = "  ".join(f"{s.hotkey}={s.number}" for s in self.strips[16:])
-        QMessageBox.information(self, "Phím tắt", (
-            f"Kênh 1-16:   {keys}\nKênh 17-32: {keys2}\n\n"
-            "Space\tGO (trang kênh) / Phát-Tạm dừng (trang Playlist)\n"
-            "Esc\tDừng hết có fade (bấm 2 lần = dừng ngay)\n"
-            "Ctrl+Shift+Esc\tDừng mọi âm thanh ngay lập tức\n"
-            "Ctrl+1 / 2 / 3\tChuyển trang Audio 1-16 / 17-32 / Playlist\n"
-            "F11\tLong View (màn hình lớn)\n"
-            "Ctrl+N / O / S\tDự án mới / Mở / Lưu\n\n"
-            "Playlist: Enter phát bài chọn · Ctrl+→/← bài tiếp/trước · Ctrl+E đặt bài kế tiếp · "
-            "Ctrl+L nghe thử · Delete xóa bài"))
-
     def show_guide(self):
         QMessageBox.information(self, "Hướng dẫn", (
             "• Kéo thả file nhạc từ Explorer vào một kênh, hoặc bấm biểu tượng nốt nhạc / nút lớn của kênh trống.\n"
-            "• Bấm nút lớn (hoặc phím tắt in trên nút) để phát; bấm lại để dừng.\n"
+            "• Bấm nút lớn (hoặc phím tắt in trên nút) để phát; bấm lại để dừng. Đổi phím ở nút Phím tắt.\n"
             "• ‖ tạm dừng / tiếp tục · Dừng: dừng ngay · ◢ bật fade in khi phát · ◣ fade out rồi dừng · 🔁 lặp lại.\n"
             "• Nút ••• (hoặc chuột phải nút lớn): đổi tên, đổi màu, chọn thiết bị ra riêng, nghe thử, xóa kênh.\n"
             "• Nháy đúp vào fader để về 80%.\n"

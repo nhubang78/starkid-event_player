@@ -4,6 +4,20 @@ from PySide6.QtMultimedia import (QAudioBufferOutput, QAudioFormat, QAudioOutput
                                   QMediaPlayer)
 
 
+# Đường cong âm lượng giống thanh âm lượng Windows: 100% = 0 dB, 80% ≈ -3.2 dB, 50% ≈ -10 dB,
+# 20% ≈ -23 dB. Biên độ = p^TAPER  (dB = 20·TAPER·log10 p).
+TAPER = 5 / 3
+
+
+def percent_to_amp(p: float) -> float:
+    return max(0.0, min(1.0, p)) ** TAPER
+
+
+def percent_to_db(p: float):
+    import math
+    return 20 * TAPER * math.log10(p) if p > 0 else None
+
+
 def find_output_device(description: str):
     """Tìm thiết bị âm thanh theo tên; trả về thiết bị mặc định nếu không thấy."""
     if description:
@@ -44,8 +58,9 @@ class Deck(QObject):
 
     # ---------- âm lượng ----------
     def _apply(self):
+        # Mức ra loa (%) = % kênh × % Master (× fade × duck) — rồi quy đổi % → biên độ
         v = max(0.0, min(1.0, self.bus * self.master * self.gain * self.duck))
-        self.out.setVolume(v * v)  # bình phương ~ cảm nhận tai người
+        self.out.setVolume(percent_to_amp(v))
 
     def set_bus(self, b: float):
         self.bus = b
@@ -84,7 +99,7 @@ class Deck(QObject):
         lv, self.levels = self.levels, [0.0, 0.0]
         if not self.is_playing():
             return [0.0, 0.0], [0.0, 0.0]
-        ch = max(0.0, min(1.0, self.master * self.gain * self.duck)) ** 2
+        ch = percent_to_amp(max(0.0, min(1.0, self.master * self.gain * self.duck)))
         post = self.out.volume()
         return [min(1.0, x * ch) for x in lv], [min(1.0, x * post) for x in lv]
 

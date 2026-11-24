@@ -3,7 +3,7 @@ import math
 
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QPainter, QPen, QPixmap, QPolygonF
-from PySide6.QtWidgets import QAbstractButton, QSlider, QStyle, QWidget
+from PySide6.QtWidgets import QAbstractButton, QPushButton, QSlider, QStyle, QWidget
 
 # ---------------------------------------------------------------- biểu tượng
 _ICON_FONT = None
@@ -212,6 +212,67 @@ class Fader(QSlider):
 
     def mouseDoubleClickEvent(self, _e):
         self.setValue(80)  # nháy đúp = về mức mặc định
+
+
+_KEY_VI = {"Up": "Lên", "Down": "Xuống", "Left": "Trái", "Right": "Phải", "Return": "Enter",
+           "Del": "Delete", "Ins": "Insert", "PgUp": "PgUp", "PgDown": "PgDown"}
+
+
+def key_label(seq: str, empty="(chưa gán)"):
+    """Tên phím dễ đọc (tiếng Việt) từ chuỗi QKeySequence dạng PortableText."""
+    if not seq:
+        return empty
+    parts = seq.split("+") if seq != "+" else ["+"]
+    return "+".join(_KEY_VI.get(p, p) for p in parts if p) or seq
+
+
+class KeyCaptureEdit(QPushButton):
+    """Ô gán phím: bấm vào rồi bấm phím muốn gán; Backspace = bỏ gán."""
+    changed = Signal(str)
+    _MODS = (Qt.Key.Key_Shift, Qt.Key.Key_Control, Qt.Key.Key_Alt, Qt.Key.Key_Meta,
+             Qt.Key.Key_AltGr, Qt.Key.Key_unknown, Qt.Key.Key_Tab, Qt.Key.Key_Backtab)
+
+    def __init__(self, seq="", parent=None):
+        super().__init__(parent)
+        self.setObjectName("keyEdit")
+        self.setAutoDefault(False)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setMinimumWidth(200)
+        self.set_seq(seq)
+
+    def set_seq(self, seq):
+        self.seq = seq
+        self.setText("Bấm phím..." if self.hasFocus() else key_label(seq))
+
+    def focusInEvent(self, e):
+        super().focusInEvent(e)
+        self.setText("Bấm phím...")
+
+    def focusOutEvent(self, e):
+        super().focusOutEvent(e)
+        self.setText(key_label(self.seq))
+
+    def keyPressEvent(self, e):
+        k = e.key()
+        if k in self._MODS:
+            return
+        mods = e.modifiers() & (Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.AltModifier
+                                | Qt.KeyboardModifier.ShiftModifier | Qt.KeyboardModifier.MetaModifier)
+        if k == Qt.Key.Key_Backspace and not mods:
+            new = ""
+        else:
+            from PySide6.QtCore import QKeyCombination
+            from PySide6.QtGui import QKeySequence
+            new = QKeySequence(QKeyCombination(mods, Qt.Key(k))).toString(
+                QKeySequence.SequenceFormat.PortableText)
+        e.accept()
+        self.seq = new
+        self.clearFocus()
+        self.setText(key_label(new))
+        self.changed.emit(new)
+
+    def keyReleaseEvent(self, e):
+        e.accept()
 
 
 class SeekSlider(QSlider):
