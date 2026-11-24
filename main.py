@@ -655,7 +655,7 @@ class MainWindow(QMainWindow):
         if self.locked or not self.confirm_discard():
             return
         if not path:
-            path, _ = QFileDialog.getOpenFileName(self, "Mở dự án", self.settings.value("projDir", ""),
+            path, _ = QFileDialog.getOpenFileName(self, "Mở dự án", self.project_dir(),
                                                   f"Dự án EventPlayer (*{PROJECT_EXT})")
         if not path:
             return
@@ -686,12 +686,39 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage("Đã lưu dự án", 3000)
         return True
 
+    @staticmethod
+    def default_project_dir():
+        d = os.path.join(QStandardPaths.writableLocation(QStandardPaths.StandardLocation.DocumentsLocation),
+                         APP_NAME)
+        os.makedirs(d, exist_ok=True)
+        return d
+
+    @staticmethod
+    def inside_program_dir(path):
+        if not getattr(sys, "frozen", False):
+            return False
+        app_dir = os.path.normcase(os.path.dirname(os.path.abspath(sys.executable)))
+        return os.path.normcase(os.path.abspath(path)).startswith(app_dir + os.sep)
+
+    def project_dir(self):
+        d = self.settings.value("projDir", "")
+        if not d or not os.path.isdir(d) or self.inside_program_dir(os.path.join(d, "x")):
+            d = self.default_project_dir()
+        return d
+
     def save_project_as(self):
         path, _ = QFileDialog.getSaveFileName(self, "Lưu dự án",
-                                              os.path.join(self.settings.value("projDir", ""), "Sự kiện" + PROJECT_EXT),
+                                              os.path.join(self.project_dir(), "Sự kiện" + PROJECT_EXT),
                                               f"Dự án EventPlayer (*{PROJECT_EXT})")
         if not path:
             return False
+        if self.inside_program_dir(path) and QMessageBox.warning(
+                self, "Cảnh báo",
+                "Bạn đang lưu dự án vào trong thư mục chương trình.\n"
+                "Khi cập nhật phần mềm, thư mục này có thể bị thay thế và MẤT dự án.\n\n"
+                "Vẫn lưu ở đây?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No) != QMessageBox.StandardButton.Yes:
+            return self.save_project_as()
         self.project_path = path
         self.settings.setValue("projDir", os.path.dirname(path))
         return self.save_project()
