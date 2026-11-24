@@ -1,4 +1,4 @@
-"""Các widget giao diện: biểu tượng, đồng hồ VU, fader, thanh tua, nút cart."""
+﻿"""Các widget giao diện: biểu tượng, đồng hồ VU, fader, thanh tua, nút cart."""
 import math
 
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
@@ -107,7 +107,8 @@ class VUMeter(QWidget):
         self.peak = [-120.0, -120.0]
         self.peak_age = [0, 0]
         self.disp = [-120.0, -120.0]
-        self.setMinimumWidth(34 if scale else 14)
+        self.setMinimumWidth(32 if scale else 13)
+        self.setMaximumWidth(36 if scale else 13)
         self.setMinimumHeight(80)
 
     def set_levels(self, amps):
@@ -128,39 +129,61 @@ class VUMeter(QWidget):
         if changed:
             self.update()
 
+    # màu LED: (sáng, tắt)
+    _ZONES = ((-6, QColor("#ef4444"), QColor("#727272")),
+              (-18, QColor("#f2b81c"), QColor("#727272")),
+              (-999, QColor("#2fb84a"), QColor("#727272")))
+    SEG = 4   # chiều cao 1 vạch LED (px), cách nhau 1px
+
+    def _zone(self, db):
+        for lim, on, off in self._ZONES:
+            if db >= lim:
+                return on, off
+        return self._ZONES[-1][1], self._ZONES[-1][2]
+
     def paintEvent(self, _e):
         p = QPainter(self)
-        bar_w = 12
+        bar_w = 11
         top, bottom = 6, self.height() - 6
         h = bottom - top
-        x0 = 2
-        p.fillRect(QRectF(x0, top, bar_w, h), QColor("#2b2b2b"))
-        half = (bar_w - 3) / 2
-        for i in range(2):
-            bx = x0 + 1 + i * (half + 1)
-            f = db_to_frac(self.disp[i])
-            if f < 1:
-                y = top + f * h
-                # xanh dưới -18, vàng -18..-6, đỏ trên -6
-                for db_lo, db_hi, col in ((-60, -18, "#22c55e"), (-18, -6, "#eab308"), (-6, 0, "#ef4444")):
-                    y_lo = top + db_to_frac(db_lo) * h
-                    y_hi = top + db_to_frac(db_hi) * h
-                    seg_top = max(y, y_hi)
-                    if seg_top < y_lo:
-                        p.fillRect(QRectF(bx, seg_top, half, y_lo - seg_top), QColor(col))
-            pf = db_to_frac(self.peak[i])
-            if pf < 1:
-                p.fillRect(QRectF(bx, top + pf * h, half, 2), QColor("#f5f5f5"))
+        x0 = 1
+        level = max(self.disp)
+        peak = max(self.peak)
+        lit_frac = db_to_frac(level) if level > -60 else 1.0
+        peak_frac = db_to_frac(peak) if peak > -60 else None
+        step = self.SEG + 1
+        n = max(1, int(h // step))
+        seg_h = h / n
+        p.fillRect(QRectF(x0, top, bar_w, h), QColor("#565656"))  # khe giữa các vạch
+        for i in range(n):                       # i = 0 ở đáy
+            y_bot = bottom - i * seg_h
+            y_top = y_bot - seg_h + 1
+            mid_frac = ((y_top + y_bot) / 2 - top) / h
+            db = self._frac_to_db(mid_frac)
+            on, off = self._zone(db)
+            lit = mid_frac >= lit_frac
+            if peak_frac is not None and abs(mid_frac - peak_frac) <= (seg_h / h) / 2:
+                color = QColor("#f5f5f5")         # vạch giữ đỉnh
+            else:
+                color = on if lit else off
+            p.fillRect(QRectF(x0, y_top, bar_w, y_bot - y_top), color)
         if self.show_scale:
             f = QFont("Segoe UI")
             f.setPixelSize(9)
             p.setFont(f)
-            p.setPen(QColor("#555"))
+            p.setPen(QColor("#6b6b6b"))
             for db, frac in SCALE:
                 y = top + frac * h
-                p.drawLine(QPointF(x0 + bar_w, y), QPointF(x0 + bar_w + 3, y))
-                p.drawText(QRectF(x0 + bar_w + 4, y - 6, 30, 12),
+                p.drawLine(QPointF(x0 + bar_w + 1, y), QPointF(x0 + bar_w + 4, y))
+                p.drawText(QRectF(x0 + bar_w + 5, y - 6, 30, 12),
                            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, str(db))
+
+    @staticmethod
+    def _frac_to_db(frac):
+        for (d0, f0), (d1, f1) in zip(SCALE, SCALE[1:]):
+            if frac <= f1:
+                return d0 + (d1 - d0) * (frac - f0) / (f1 - f0)
+        return -60.0
 
 
 class Fader(QSlider):
@@ -171,20 +194,19 @@ class Fader(QSlider):
         self.setRange(0, 100)
         self.setPageStep(5)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.setMinimumWidth(40)
+        self.setMinimumWidth(34)
         self.setMinimumHeight(80)
 
     def paintEvent(self, e):
         p = QPainter(self)
-        p.setPen(QColor("#9a9a9a"))
+        p.setPen(QColor("#a3a3a3"))
         h = self.height()
         cx = self.width() / 2
-        handle = 18
-        for i in range(0, 11):
-            y = handle / 2 + (h - handle) * i / 10
-            ln = 6 if i % 5 == 0 else 4
-            p.drawLine(QPointF(cx - 18, y), QPointF(cx - 18 + ln, y))
-            p.drawLine(QPointF(cx + 18 - ln, y), QPointF(cx + 18, y))
+        handle = 14
+        for i in range(0, 7):
+            y = handle / 2 + (h - handle) * i / 6
+            p.drawLine(QPointF(cx - 16, y), QPointF(cx - 11, y))
+            p.drawLine(QPointF(cx + 11, y), QPointF(cx + 16, y))
         p.end()
         super().paintEvent(e)
 
@@ -217,11 +239,12 @@ class CartButton(QAbstractButton):
         super().__init__(parent)
         self.strip = strip
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.setMinimumHeight(50)
+        self.setMinimumHeight(42)
+        self.setMaximumHeight(50)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def sizeHint(self):
-        return QSize(150, 56)
+        return QSize(140, 46)
 
     def paintEvent(self, _e):
         s = self.strip
@@ -238,14 +261,14 @@ class CartButton(QAbstractButton):
         fg = QColor("#111") if bg.lightness() > 140 else QColor("#f5f5f5")
         if s.path:
             f = QFont("Segoe UI")
-            f.setPixelSize(max(14, int(r.height() * 0.34)))
+            f.setPixelSize(15)
             f.setBold(True)
             p.setFont(f)
             p.setPen(fg)
             p.drawText(QRectF(r.x(), r.y() + 2, r.width(), r.height() / 2),
                        Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom, str(s.number))
             f.setBold(False)
-            f.setPixelSize(max(11, int(r.height() * 0.24)))
+            f.setPixelSize(12)
             p.setFont(f)
             name = p.fontMetrics().elidedText(s.display_name(), Qt.TextElideMode.ElideRight, int(r.width() - 12))
             p.drawText(QRectF(r.x() + 6, r.y() + r.height() / 2, r.width() - 12, r.height() / 2 - 2),
@@ -256,7 +279,7 @@ class CartButton(QAbstractButton):
             p.drawText(QRectF(r.x() + 5, r.y() + 3, 30, 14), Qt.AlignmentFlag.AlignLeft, s.hotkey)
         else:
             f = QFont("Segoe UI")
-            f.setPixelSize(max(16, int(r.height() * 0.42)))
+            f.setPixelSize(17)
             p.setFont(f)
-            p.setPen(QColor("#9a9a9a"))
+            p.setPen(QColor("#a3a3a3"))
             p.drawText(r, Qt.AlignmentFlag.AlignCenter, s.hotkey)

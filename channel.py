@@ -2,7 +2,7 @@
 import math
 import os
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QColorDialog, QFileDialog, QFrame, QHBoxLayout, QInputDialog,
                                QLabel, QMenu, QPushButton, QToolButton, QVBoxLayout, QWidget)
@@ -57,8 +57,8 @@ class ChannelStrip(QWidget):
         frame.setObjectName("strip")
         root.addWidget(frame, 1)
         v = QVBoxLayout(frame)
-        v.setContentsMargins(8, 8, 8, 6)
-        v.setSpacing(3)
+        v.setContentsMargins(7, 7, 7, 4)
+        v.setSpacing(2)
 
         top = QHBoxLayout()
         top.setSpacing(2)
@@ -67,6 +67,7 @@ class ChannelStrip(QWidget):
         self.btn_file.setIcon(glyph_icon("", "#555"))
         self.btn_file.setToolTip("Chọn file nhạc cho kênh")
         self.btn_file.setAutoRaise(True)
+        self.btn_file.setIconSize(QSize(15, 15))
         self.btn_file.clicked.connect(self.choose_file)
         self.btn_more = QToolButton()
         self.btn_more.setText("•••")
@@ -104,7 +105,7 @@ class ChannelStrip(QWidget):
         v.addWidget(self.cart)
 
         row = QHBoxLayout()
-        row.setSpacing(6)
+        row.setSpacing(5)
         self.btn_pause = QPushButton("‖")
         self.btn_pause.setToolTip("Tạm dừng / tiếp tục")
         self.btn_pause.clicked.connect(self.pause_toggle)
@@ -132,6 +133,7 @@ class ChannelStrip(QWidget):
             b.setToolTip(tip)
             b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             b.setObjectName("chIcon")
+            b.setIconSize(QSize(13, 13))
             (b.toggled if checkable else b.clicked).connect(slot)
             bot.addWidget(b)
             return b
@@ -214,7 +216,9 @@ class ChannelStrip(QWidget):
     def on_fader(self, val, emit=True):
         self.deck.set_master(val / 100)
         db = 40 * math.log10(val / 100) if val > 0 else None
-        self.lbl_level.setText(f"{val}%   " + (f"{db:+.1f} dB" if db is not None else "-∞ dB"))
+        dbt = f"{db:+.1f} dB" if db is not None else "-∞ dB"
+        self.lbl_level.setText(f"<span style='font-size:9.5pt'>{val}%</span>&nbsp;&nbsp;"
+                               f"<span style='font-size:8pt'>{dbt}</span>")
         if emit:
             self.changed.emit()
 

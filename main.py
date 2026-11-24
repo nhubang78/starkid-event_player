@@ -31,60 +31,60 @@ DEFAULT_CFG = {
 }
 
 STYLE = """
-QMainWindow, QWidget { background:#ececec; color:#1f1f1f; font-family:'Segoe UI'; font-size:10pt; }
+QMainWindow, QWidget { background:#ececec; color:#1f1f1f; font-family:'Segoe UI'; font-size:9pt; }
 QMenuBar { background:#ffffff; }
 QMenuBar::item:selected, QMenu::item:selected { background:#dbeafe; color:#111; }
 QMenu { background:#ffffff; border:1px solid #cfcfcf; }
 QWidget#toolbar { background:#f5f5f5; border-bottom:1px solid #dcdcdc; }
-QToolButton#tool { background:transparent; border:none; border-radius:6px; padding:4px 10px;
-                   font-size:10.5pt; color:#333; }
+QToolButton#tool { background:transparent; border:none; border-radius:6px; padding:3px 8px;
+                   font-size:9pt; color:#333; }
 QToolButton#tool:hover { background:#e4e4e4; }
 QToolButton#tool:checked { background:#dcdcdc; color:#1d4ed8; }
 QToolButton#tool[accent="true"]:checked { background:#2563eb; color:white; }
-QLabel#pathBar { background:#f5f5f5; padding:3px 12px; color:#333; border-bottom:1px solid #e0e0e0; }
-QLabel#chHead { padding-left:12px; color:#222; }
+QLabel#pathBar { background:#f5f5f5; padding:2px 12px; font-size:8.5pt; color:#333; border-bottom:1px solid #e0e0e0; }
+QLabel#chHead { padding-left:10px; color:#444; font-size:9pt; }
 QFrame#strip { background:#e2e2e2; border:1px solid #d2d2d2; border-radius:5px; }
 QFrame#strip QLabel { background:transparent; }
-QLabel#level { color:#666; font-size:9pt; }
-QLabel#time { color:#111; font-size:10.5pt; }
+QLabel#level { color:#777; font-size:8.5pt; }
+QLabel#time { color:#222; font-size:9pt; }
 QLabel#time[dim="true"], QLabel#level[dim="true"] { color:#a8a8a8; }
 QSlider { background:transparent; }
-QToolButton#more { background:#ffffff; border:1px solid #cfcfcf; border-radius:4px; font-size:7pt;
-                   min-width:24px; min-height:20px; }
-QPushButton#chBtn { background:#ffffff; border:1px solid #cfcfcf; border-radius:4px; padding:3px; }
+QToolButton#more { background:#ffffff; border:1px solid #cfcfcf; border-radius:4px; font-size:6pt;
+                   min-width:22px; min-height:16px; }
+QPushButton#chBtn { background:#ffffff; border:1px solid #cfcfcf; border-radius:4px; padding:1px; font-size:8.5pt; min-height:18px; }
 QPushButton#chBtn:hover { background:#f3f4f6; }
 QPushButton#chBtn:disabled { color:#b5b5b5; background:#f2f2f2; }
 QPushButton#chBtn[active="true"] { background:#fde68a; }
 QToolButton#chIcon { border:none; background:transparent; padding:1px; }
 QToolButton#chIcon:hover { background:#d6d6d6; border-radius:3px; }
-QSlider::groove:vertical { width:4px; background:#a3a3a3; border-radius:2px; }
-QSlider::handle:vertical { height:16px; width:28px; margin:0 -12px; border-radius:3px;
+QSlider::groove:vertical { width:6px; background:#a8a8a8; border-radius:3px; }
+QSlider::handle:vertical { height:14px; width:24px; margin:0 -9px; border-radius:4px;
     border:1px solid #8a8a8a;
     background:qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #ffffff, stop:0.45 #e9e9e9,
                                stop:0.5 #7a7a7a, stop:0.55 #e9e9e9, stop:1 #d4d4d4); }
 QSlider::groove:horizontal { height:4px; background:#c4c4c4; border-radius:2px; }
 QSlider::sub-page:horizontal { background:#9ca3af; border-radius:2px; }
-QSlider::handle:horizontal { width:14px; height:14px; margin:-6px 0; border-radius:8px;
+QSlider::handle:horizontal { width:11px; height:11px; margin:-5px 0; border-radius:6px;
                              background:#ffffff; border:1px solid #8a8a8a; }
-QPushButton#go { background:#fff176; border:1px solid #e0cf3a; border-radius:4px; font-size:13pt;
-                 font-weight:600; min-height:66px; }
+QPushButton#go { background:#fff176; border:1px solid #e0cf3a; border-radius:4px; font-size:11pt;
+                 font-weight:600; min-height:50px; }
 QPushButton#go:hover { background:#ffee58; }
 QPushButton#go:pressed { background:#fdd835; }
 QFrame#nowPlaying { background:#ffffff; border:1px solid #d6d6d6; border-radius:6px; }
 QFrame#nowPlaying QLabel { background:transparent; }
-QLabel#bigTitle { font-size:20pt; font-weight:700; }
-QLabel#artist { font-size:12pt; color:#6b7280; }
-QLabel#timeBig { font-size:28pt; font-weight:700; font-family:Consolas; }
-QLabel#next { font-size:11pt; color:#a16207; }
-QPushButton { background:#ffffff; border:1px solid #cfcfcf; border-radius:5px; padding:5px 12px; }
+QLabel#bigTitle { font-size:15pt; font-weight:700; }
+QLabel#artist { font-size:10pt; color:#6b7280; }
+QLabel#timeBig { font-size:22pt; font-weight:700; font-family:Consolas; }
+QLabel#next { font-size:9.5pt; color:#a16207; }
+QPushButton { background:#ffffff; border:1px solid #cfcfcf; border-radius:5px; padding:4px 10px; }
 QPushButton:hover { background:#f3f4f6; }
-QPushButton#transport { font-size:12pt; font-weight:700; min-width:70px; min-height:36px; padding:5px 16px; }
+QPushButton#transport { font-size:10pt; font-weight:700; min-width:60px; min-height:28px; padding:4px 14px; }
 QTreeWidget { background:#ffffff; alternate-background-color:#f7f7f7; border:1px solid #d6d6d6; }
-QTreeWidget::item { padding:3px; }
+QTreeWidget::item { padding:2px; }
 QTreeWidget::item:selected { background:#2563eb; color:white; }
 QHeaderView::section { background:#f1f1f1; border:none; border-bottom:1px solid #ddd; padding:4px; }
 QTabWidget::pane { border:1px solid #d6d6d6; }
-QTabBar::tab { background:#e2e2e2; padding:6px 14px; border-top-left-radius:5px;
+QTabBar::tab { background:#e2e2e2; padding:4px 12px; border-top-left-radius:5px;
                border-top-right-radius:5px; margin-right:2px; }
 QTabBar::tab:selected { background:#ffffff; color:#1d4ed8; }
 QComboBox, QSpinBox { background:#ffffff; border:1px solid #cfcfcf; border-radius:4px; padding:3px 6px; }
@@ -240,7 +240,7 @@ class MainWindow(QMainWindow):
         tb = QWidget()
         tb.setObjectName("toolbar")
         tl = QHBoxLayout(tb)
-        tl.setContentsMargins(12, 4, 12, 4)
+        tl.setContentsMargins(10, 2, 10, 2)
         tl.setSpacing(2)
         self.page_group = QButtonGroup(self)
         self.page_group.setExclusive(True)
@@ -250,12 +250,12 @@ class MainWindow(QMainWindow):
             b.setObjectName("tool")
             b.setText(text)
             b.setIcon(ic)
-            b.setIconSize(QSize(30, 30))
+            b.setIconSize(QSize(22, 22))
             b.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
             b.setCheckable(checkable)
             b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             b.setToolTip(tip or text)
-            b.setMinimumWidth(78)
+            b.setMinimumWidth(62)
             if slot:
                 (b.toggled if checkable else b.clicked).connect(slot)
             tl.addWidget(b)
@@ -265,7 +265,7 @@ class MainWindow(QMainWindow):
             line = QFrame()
             line.setFrameShape(QFrame.Shape.VLine)
             line.setStyleSheet("color:#d4d4d4;")
-            line.setFixedHeight(44)
+            line.setFixedHeight(34)
             tl.addSpacing(6)
             tl.addWidget(line)
             tl.addSpacing(6)
@@ -304,16 +304,16 @@ class MainWindow(QMainWindow):
 
         # --- thân: các trang + cột phải ---
         body = QHBoxLayout()
-        body.setContentsMargins(10, 8, 10, 4)
-        body.setSpacing(10)
+        body.setContentsMargins(14, 10, 14, 6)
+        body.setSpacing(16)
         self.stack = QStackedWidget()
         self.strips = []
         for page in range(2):
             w = QWidget()
             grid = QGridLayout(w)
             grid.setContentsMargins(0, 0, 0, 0)
-            grid.setHorizontalSpacing(10)
-            grid.setVerticalSpacing(8)
+            grid.setHorizontalSpacing(14)
+            grid.setVerticalSpacing(10)
             for k in range(16):
                 n = page * 16 + k + 1
                 s = ChannelStrip(n, HOTKEYS[n - 1], self)
@@ -332,7 +332,7 @@ class MainWindow(QMainWindow):
 
         right = QVBoxLayout()
         right.setSpacing(3)
-        right.addSpacing(22)
+        right.addSpacing(20)
         self.btn_go = QPushButton("GO 1")
         self.btn_go.setObjectName("go")
         self.btn_go.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -361,13 +361,13 @@ class MainWindow(QMainWindow):
         right.addWidget(mf, 1)
         rw = QWidget()
         rw.setLayout(right)
-        rw.setFixedWidth(130)
+        rw.setFixedWidth(116)
         body.addWidget(rw)
         root.addLayout(body, 1)
         self.setCentralWidget(central)
 
         self.lbl_clock = QLabel()
-        self.lbl_clock.setStyleSheet("font-family:Consolas;font-size:10.5pt;padding-right:8px;")
+        self.lbl_clock.setStyleSheet("font-family:Consolas;font-size:9.5pt;padding-right:8px;")
         ver = QLabel(f"v{VERSION}")
         ver.setStyleSheet("color:#888;padding-right:12px;")
         self.statusBar().addPermanentWidget(ver)
@@ -778,7 +778,7 @@ def main():
     app.setApplicationName(APP_NAME)
     app.setStyle("Fusion")
     app.setStyleSheet(STYLE)
-    app.setFont(QFont("Segoe UI", 10))
+    app.setFont(QFont("Segoe UI", 9))
     w = MainWindow()
     w.showMaximized()
     sys.exit(app.exec())
