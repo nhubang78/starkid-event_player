@@ -8,6 +8,7 @@ from PySide6.QtWidgets import (QFileDialog, QFrame, QHBoxLayout, QLabel, QMenu, 
 
 from audio import Deck, find_output_device, percent_to_db
 from playlist import AUDIO_EXT, AUDIO_FILTER, read_meta
+from waveform import prefetch
 from widgets import CartButton, Fader, SeekSlider, VUMeter, glyph_icon, shape_icon
 
 DEFAULT_FADER = 80
@@ -363,6 +364,7 @@ class ChannelStrip(QWidget):
         self.name = os.path.splitext(os.path.basename(path))[0]
         self.duration = read_meta(path)[2]
         self.start_ms = self.end_ms = 0
+        prefetch(path)
         if was_empty:                          # kênh trống: áp dụng mặc định (*)
             d = self.host.channel_defaults()
             self.mode = d.get("mode", self.mode)
@@ -438,6 +440,8 @@ class ChannelStrip(QWidget):
         self.on_fader(self.fader.value(), emit=False)
         self.apply_device()
         self.refresh()
+        if self.path and os.path.isfile(self.path):
+            prefetch(self.path)
 
     # ================= kéo thả =================
     def dragEnterEvent(self, e):

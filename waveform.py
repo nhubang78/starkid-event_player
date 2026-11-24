@@ -1,11 +1,14 @@
 """Dạng sóng + trình chọn đoạn phát (điểm bắt đầu / kết thúc) cho một kênh."""
-import math
+import hashlib
+import os
+import queue
 import re
+import struct
+import threading
 from array import array
 
-from PySide6.QtCore import QLineF, QObject, QPointF, QRectF, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QLineF, QObject, QPointF, QRectF, QStandardPaths, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPolygonF
-from PySide6.QtMultimedia import QAudioDecoder, QAudioFormat
 from PySide6.QtWidgets import (QDialog, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
                                QSlider, QVBoxLayout, QWidget)
 
@@ -52,73 +55,158 @@ class WaveData:
         self.mins, self.maxs, self.bucket_ms, self.duration = mins, maxs, bucket_ms, duration_ms
 
 
+RATE = 8000          # giải mã xuống 8 kHz mono — đủ để vẽ sóng, rất nhanh
+_MAGIC = b"EPW1"
+
+
+def _cache_file(path):
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    key = hashlib.sha1(f"{os.path.abspath(path)}|{st.st_size}|{st.st_mtime_ns}".encode("utf-8")).hexdigest()
+    base = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
+    d = os.path.join(base, "waves")
+    os.makedirs(d, exist_ok=True)
+    return os.path.join(d, key + ".wav.peaks")
+
+
+def load_cached(path):
+    """Lấy dạng sóng đã lưu (bộ nhớ hoặc ổ đĩa); None nếu chưa có."""
+    if path in _CACHE:
+        return _CACHE[path]
+    f = _cache_file(path)
+    if not f or not os.path.isfile(f):
+        return None
+    try:
+        with open(f, "rb") as fh:
+            magic, n, bucket_ms, dur = struct.unpack("<4sIdd", fh.read(24))
+            if magic != _MAGIC:
+                return None
+            mins, maxs = array("h"), array("h")
+            mins.frombytes(fh.read(n * 2))
+            maxs.frombytes(fh.read(n * 2))
+        if len(mins) != n or len(maxs) != n:
+            return None
+        data = WaveData(mins, maxs, bucket_ms, dur)
+        _CACHE[path] = data
+        return data
+    except (OSError, struct.error):
+        return None
+
+
+def _save_cached(path, data):
+    _CACHE[path] = data
+    f = _cache_file(path)
+    if not f:
+        return
+    try:
+        with open(f + ".tmp", "wb") as fh:
+            fh.write(struct.pack("<4sIdd", _MAGIC, len(data.mins), data.bucket_ms, data.duration))
+            fh.write(data.mins.tobytes())
+            fh.write(data.maxs.tobytes())
+        os.replace(f + ".tmp", f)
+    except OSError:
+        pass
+
+
+def compute_wave(path, progress=None, cancel=None):
+    """Giải mã file bằng PyAV (FFmpeg) và tính đỉnh sóng. Trả về WaveData hoặc None."""
+    import av
+    samples = array("h")
+    with av.open(path) as c:
+        st = next((x for x in c.streams if x.type == "audio"), None)
+        if st is None:
+            return None
+        st.thread_type = "AUTO"
+        total = (float(st.duration * st.time_base) if st.duration else (c.duration or 0) / 1e6) * RATE
+        rs = av.AudioResampler(format="s16", layout="mono", rate=RATE)
+        k = 0
+        for fr in c.decode(st):
+            for r in rs.resample(fr):
+                samples.frombytes(bytes(r.planes[0])[: r.samples * 2])
+            k += 1
+            if k % 200 == 0:
+                if cancel is not None and cancel.is_set():
+                    return None
+                if progress and total:
+                    progress(min(99, int(len(samples) * 100 / total)))
+        for r in rs.resample(None):
+            samples.frombytes(bytes(r.planes[0])[: r.samples * 2])
+    n = len(samples)
+    if n == 0:
+        return None
+    step = RATE * BUCKET_MS // 1000
+    mv = memoryview(samples)
+    mins, maxs = array("h"), array("h")
+    for i in range(0, n, step):
+        seg = mv[i:i + step]
+        mins.append(min(seg))
+        maxs.append(max(seg))
+    data = WaveData(mins, maxs, step * 1000 / RATE, n * 1000 / RATE)
+    _save_cached(path, data)
+    return data
+
+
 class WaveformLoader(QObject):
+    """Đọc dạng sóng trong luồng nền; báo % tiến độ và kết quả."""
     done = Signal(object)        # WaveData hoặc None
-    progress = Signal(int)       # ms đã đọc
+    progress = Signal(int)       # %
 
     def __init__(self, path, parent=None):
         super().__init__(parent)
         self.path = path
-        self.samples = array("h")
-        self.rate = 8000
-        self.dec = QAudioDecoder(self)
-        fmt = QAudioFormat()
-        fmt.setSampleRate(8000)
-        fmt.setChannelCount(1)
-        fmt.setSampleFormat(QAudioFormat.SampleFormat.Int16)
-        self.dec.setAudioFormat(fmt)
-        self.dec.bufferReady.connect(self._on_buffer)
-        self.dec.finished.connect(self._on_finished)
-        self.dec.error.connect(lambda _e: self.done.emit(None))
-        self._n = 0
+        self._cancel = threading.Event()
 
     def start(self):
-        if self.path in _CACHE:
-            QTimer.singleShot(0, lambda: self.done.emit(_CACHE[self.path]))
+        data = load_cached(self.path)
+        if data is not None:
+            QTimer.singleShot(0, lambda: self.done.emit(data))
             return
-        self.dec.setSource(QUrl.fromLocalFile(self.path))
-        self.dec.start()
+        threading.Thread(target=self._run, daemon=True).start()
 
     def stop(self):
-        self.dec.stop()
+        self._cancel.set()
 
-    def _on_buffer(self):
-        b = self.dec.read()
-        f = b.format()
-        data = b.constData()
-        if data is None:
-            return
-        ch = max(1, f.channelCount())
-        self.rate = f.sampleRate() or 8000
+    def _run(self):
         try:
-            if f.sampleFormat() == QAudioFormat.SampleFormat.Int16:
-                mv = data.cast("B").cast("h")
-                self.samples.frombytes((mv[::ch] if ch > 1 else mv).tobytes())
-            elif f.sampleFormat() == QAudioFormat.SampleFormat.Float:
-                mv = data.cast("B").cast("f")
-                self.samples.extend(int(max(-1.0, min(1.0, x)) * 32767) for x in mv[::ch])
-        except (TypeError, ValueError):
-            return
-        self._n += 1
-        if self._n % 200 == 0:
-            self.progress.emit(int(len(self.samples) * 1000 / self.rate))
+            data = compute_wave(self.path, lambda pc: self._emit(self.progress, pc), self._cancel)
+        except Exception:
+            data = None
+        self._emit(self.done, data)
 
-    def _on_finished(self):
-        n = len(self.samples)
-        if n == 0:
-            self.done.emit(None)
+    def _emit(self, sig, value):
+        if self._cancel.is_set():
             return
-        step = max(1, self.rate * BUCKET_MS // 1000)
-        mv = memoryview(self.samples)
-        mins, maxs = array("h"), array("h")
-        for i in range(0, n, step):
-            s = mv[i:i + step]
-            mins.append(min(s))
-            maxs.append(max(s))
-        data = WaveData(mins, maxs, step * 1000 / self.rate, n * 1000 / self.rate)
-        _CACHE[self.path] = data
-        self.samples = array("h")
-        self.done.emit(data)
+        try:
+            sig.emit(value)
+        except RuntimeError:      # hộp thoại đã đóng
+            pass
+
+
+# ----- đọc trước dạng sóng khi nạp nhạc vào kênh (1 luồng nền, lần lượt)
+_prefetch_q = queue.Queue()
+_prefetch_started = False
+
+
+def prefetch(path):
+    global _prefetch_started
+    if not path or path in _CACHE:
+        return
+    _prefetch_q.put(path)
+    if not _prefetch_started:
+        _prefetch_started = True
+        threading.Thread(target=_prefetch_worker, daemon=True).start()
+
+
+def _prefetch_worker():
+    while True:
+        path = _prefetch_q.get()
+        try:
+            if os.path.isfile(path) and load_cached(path) is None:
+                compute_wave(path)
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------- khung vẽ sóng
@@ -403,8 +491,7 @@ class SegmentEditor(QDialog):
         self.on_view()
         self.loader = WaveformLoader(path, self)
         self.loader.done.connect(self.on_loaded)
-        self.loader.progress.connect(lambda ms: (setattr(self.wave, "message",
-                                                         f"Đang đọc dạng sóng... {fmt_short(ms)}"),
+        self.loader.progress.connect(lambda pc: (setattr(self.wave, "message", f"Đang đọc dạng sóng... {pc}%"),
                                                  self.wave.update()))
         self.loader.start()
 

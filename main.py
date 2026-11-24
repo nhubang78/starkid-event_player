@@ -1,11 +1,11 @@
-"""EventPlayer — phần mềm phát nhạc sự kiện cho Windows (bảng 32 kênh + playlist)."""
+"""Starkid Event Player — phần mềm phát nhạc sự kiện cho Windows (bảng 32 kênh + playlist)."""
 import json
 import os
 import sys
 
 from PySide6.QtCore import QSettings, QSize, QStandardPaths, Qt, QTime, QTimer
 from PySide6.QtCore import QRectF
-from PySide6.QtGui import QActionGroup, QColor, QFont, QKeySequence, QPainter, QShortcut
+from PySide6.QtGui import QColor, QFont, QIcon, QKeySequence, QPainter, QShortcut
 from PySide6.QtWidgets import (QApplication, QButtonGroup, QComboBox, QDialog, QDialogButtonBox,
                                QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout,
                                QInputDialog, QLabel, QMainWindow, QMenu, QMessageBox, QPushButton,
@@ -21,7 +21,14 @@ from shortcuts import DEFAULT_KEYS, NAV_KEYS, ShortcutDialog
 from shortcuts import LABELS as SHORTCUT_LABELS
 from widgets import Fader, VUMeter, glyph_icon, key_label, shape_icon
 
-APP_NAME = "EventPlayer"
+APP_NAME = "EventPlayer"            # tên nội bộ: thư mục lưu cài đặt (giữ nguyên để không mất dữ liệu)
+DISPLAY_NAME = "Starkid Event Player"
+ASSET_DIR = os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__))), "assets")
+
+
+def asset(name):
+    return os.path.join(ASSET_DIR, name)
+
 VERSION = "2.0"
 PROJECT_EXT = ".evp"
 CHANNELS = 32
@@ -147,7 +154,7 @@ class LongView(QWidget):
     def __init__(self, host):
         super().__init__(None, Qt.WindowType.Window)
         self.host = host
-        self.setWindowTitle("Long View — EventPlayer")
+        self.setWindowTitle(f"Long View — {DISPLAY_NAME}")
         self.resize(1000, 600)
         self.setStyleSheet("QWidget{background:#0b0b0b;color:#f5f5f5;font-family:'Segoe UI';}")
         self.lay = QVBoxLayout(self)
@@ -352,6 +359,15 @@ class MainWindow(QMainWindow):
              tip="Dừng tất cả (Esc). Bấm 2 lần = dừng ngay")
         self.btn_lock = tool("Khóa cài đặt", glyph_icon("\uE785", g), self.set_locked, True,
                              "Khóa: không bàn phím, không bấm chuột điều khiển được — nhạc vẫn phát.\nBấm lại nút này để mở khóa.")
+        tl.addSpacing(10)
+        logo = QToolButton()
+        logo.setObjectName("tool")
+        logo.setIcon(QIcon(asset("logo_round.png")))
+        logo.setIconSize(QSize(50, 50))
+        logo.setToolTip(DISPLAY_NAME)
+        logo.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        logo.clicked.connect(self.show_about)
+        tl.addWidget(logo)
         root.addWidget(tb)
 
         self.lbl_path = QLabel()
@@ -464,6 +480,8 @@ class MainWindow(QMainWindow):
         m = mb.addMenu("Trợ giúp")
         m.addAction("Bảng phím tắt...", self.open_shortcuts)
         m.addAction("Hướng dẫn", self.show_guide)
+        m.addSeparator()
+        m.addAction(f"Giới thiệu {DISPLAY_NAME}", self.show_about)
 
     FIXED_KEYS = ("Ctrl+Shift+Esc", "Ctrl+Right", "Ctrl+Left", "Ctrl+E", "Ctrl+L")
 
@@ -810,7 +828,7 @@ class MainWindow(QMainWindow):
 
     def update_title(self):
         name = os.path.splitext(os.path.basename(self.project_path))[0] if self.project_path else "Chưa đặt tên"
-        self.setWindowTitle(f"{APP_NAME} - {name}{' *' if self.dirty else ''}")
+        self.setWindowTitle(f"{DISPLAY_NAME} - {name}{' *' if self.dirty else ''}")
         self.lbl_path.setText((self.project_path or "(Dự án chưa lưu)") + (" *" if self.dirty else ""))
 
     def project_data(self):
@@ -836,7 +854,7 @@ class MainWindow(QMainWindow):
     def confirm_discard(self):
         if not self.dirty:
             return True
-        r = QMessageBox.question(self, APP_NAME, "Dự án có thay đổi chưa lưu. Lưu lại không?",
+        r = QMessageBox.question(self, DISPLAY_NAME, "Dự án có thay đổi chưa lưu. Lưu lại không?",
                                  QMessageBox.StandardButton.Save | QMessageBox.StandardButton.Discard
                                  | QMessageBox.StandardButton.Cancel)
         if r == QMessageBox.StandardButton.Save:
@@ -857,7 +875,7 @@ class MainWindow(QMainWindow):
             return
         if not path:
             path, _ = QFileDialog.getOpenFileName(self, "Mở dự án", self.project_dir(),
-                                                  f"Dự án EventPlayer (*{PROJECT_EXT})")
+                                                  f"Dự án Starkid Event Player (*{PROJECT_EXT})")
         if not path:
             return
         try:
@@ -910,7 +928,7 @@ class MainWindow(QMainWindow):
     def save_project_as(self):
         path, _ = QFileDialog.getSaveFileName(self, "Lưu dự án",
                                               os.path.join(self.project_dir(), "Sự kiện" + PROJECT_EXT),
-                                              f"Dự án EventPlayer (*{PROJECT_EXT})")
+                                              f"Dự án Starkid Event Player (*{PROJECT_EXT})")
         if not path:
             return False
         if self.inside_program_dir(path) and QMessageBox.warning(
@@ -960,6 +978,14 @@ class MainWindow(QMainWindow):
             pass
 
     # ================= TRỢ GIÚP =================
+    def show_about(self):
+        box = QMessageBox(self)
+        box.setWindowTitle(f"Giới thiệu {DISPLAY_NAME}")
+        box.setIconPixmap(QIcon(asset("logo_round.png")).pixmap(96, 96))
+        box.setText(f"<b style='font-size:13pt'>{DISPLAY_NAME}</b><br>Phiên bản {VERSION}<br><br>"
+                    "Phần mềm phát nhạc sự kiện: 32 kênh, Playlist, GO, Phát đơn, Long View.")
+        box.exec()
+
     def show_guide(self):
         QMessageBox.information(self, "Hướng dẫn", (
             "• Kéo thả file nhạc từ Explorer vào một kênh, hoặc bấm biểu tượng nốt nhạc / nút lớn của kênh trống.\n"
@@ -987,9 +1013,28 @@ class MainWindow(QMainWindow):
 
 
 def main():
+    if len(sys.argv) >= 4 and sys.argv[1] == "--wave-test":     # kiểm tra bộ đọc sóng trong bản exe
+        import time
+        from waveform import compute_wave
+        t0 = time.time()
+        try:
+            d = compute_wave(sys.argv[2])
+            msg = f"OK {d.duration / 1000:.1f}s nhạc, đọc {time.time() - t0:.2f}s" if d else "NONE"
+        except Exception as e:
+            msg = f"LỖI {e!r}"
+        with open(sys.argv[3], "w", encoding="utf-8") as fh:
+            fh.write(msg)
+        return
     app = QApplication(sys.argv)
     app.setOrganizationName(APP_NAME)
     app.setApplicationName(APP_NAME)
+    app.setApplicationDisplayName(DISPLAY_NAME)
+    app.setWindowIcon(QIcon(asset("app.ico")))
+    try:   # để Windows dùng đúng icon của app trên thanh taskbar
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Starkid.EventPlayer")
+    except Exception:
+        pass
     app.setStyle("Fusion")
     app.setStyleSheet(STYLE)
     app.setFont(QFont("Segoe UI", 9))

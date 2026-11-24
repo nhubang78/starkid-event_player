@@ -1,13 +1,13 @@
-# starkid-event_player — EventPlayer
+# Starkid Event Player
 
 Phần mềm phát nhạc sự kiện cho Windows: bảng 32 kênh kiểu cart player + trang Playlist.
 Viết bằng Python + PySide6 (Qt 6), giải mã âm thanh bằng FFmpeg có sẵn trong Qt.
 
 ## Chạy
-- Cài thư viện: `python -m pip install PySide6 mutagen`
+- Cài thư viện: `python -m pip install PySide6 mutagen av pillow`
 - Chạy: nháy đúp `run.bat` hoặc `python main.py`
-- Đóng gói .exe: nháy đúp `build.bat` → `dist\EventPlayer\EventPlayer.exe`
-  (chép nguyên thư mục `dist\EventPlayer` sang máy khác là chạy, không cần Python)
+- Đóng gói .exe: nháy đúp `build.bat` → `release\StarkidEventPlayer\StarkidEventPlayer.exe` và file zip
+  (chép nguyên thư mục `release\StarkidEventPlayer` hoặc file zip sang máy khác là chạy, không cần Python)
 
 ## Tính năng
 **Trang Audio 1-16 / Audio 17-32** — 32 kênh, mỗi kênh có:
