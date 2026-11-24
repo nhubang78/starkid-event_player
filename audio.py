@@ -79,12 +79,14 @@ class Deck(QObject):
         self.levels = [max(self.levels[0], peaks[0]), max(self.levels[1], peaks[1])]
 
     def take_levels(self):
-        """Trả về mức đỉnh sau fader (0..1) rồi xóa bộ giữ đỉnh."""
+        """Trả về (mức sau fader kênh, mức sau Master) — mỗi cái là [L, R] 0..1 —
+        rồi xóa bộ giữ đỉnh."""
         lv, self.levels = self.levels, [0.0, 0.0]
         if not self.is_playing():
-            return [0.0, 0.0]
-        vol = self.out.volume()
-        return [min(1.0, x * vol) for x in lv]
+            return [0.0, 0.0], [0.0, 0.0]
+        ch = max(0.0, min(1.0, self.master * self.gain * self.duck)) ** 2
+        post = self.out.volume()
+        return [min(1.0, x * ch) for x in lv], [min(1.0, x * post) for x in lv]
 
     def set_master(self, m: float):
         self.master = m

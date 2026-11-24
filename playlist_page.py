@@ -484,8 +484,10 @@ class PlaylistPage(QWidget):
             d.set_device(dev)
 
     def take_levels(self):
-        a, b = (d.take_levels() for d in self.decks)
-        return [max(a[0], b[0]), max(a[1], b[1])]
+        """(mức trước Master, mức sau Master) của cả 2 deck (cộng công suất khi crossfade)."""
+        (a_pre, a_post), (b_pre, b_post) = (d.take_levels() for d in self.decks)
+        mix = lambda x, y: [min(1.0, (x[i] ** 2 + y[i] ** 2) ** 0.5) for i in range(2)]
+        return mix(a_pre, b_pre), mix(a_post, b_post)
 
     # ================= HIỂN THỊ =================
     def refresh_marks(self):

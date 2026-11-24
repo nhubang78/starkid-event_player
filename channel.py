@@ -199,8 +199,8 @@ class ChannelStrip(QWidget):
         self.cart.update()
 
     def tick(self):
-        self.last_levels = self.deck.take_levels()
-        self.meter.set_levels(self.last_levels)
+        pre, self.last_levels = self.deck.take_levels()   # last_levels: sau Master
+        self.meter.set_levels(pre)
         if not (self.deck.is_playing() or self.deck.is_paused()):
             return
         pos, dur = self.deck.position(), self.deck.duration() or self.duration

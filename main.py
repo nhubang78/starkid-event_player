@@ -581,17 +581,19 @@ class MainWindow(QMainWindow):
         if self._ticks % 4 == 0:
             self.lbl_clock.setText(QTime.currentTime().toString("HH:mm:ss"))
         page = self.stack.currentIndex()
-        lv = [0.0, 0.0]
+        # Master = tổng công suất các nguồn đang phát (sau fader kênh và fader Master)
+        power = [0.0, 0.0]
         for i, s in enumerate(self.strips):
             if (i // 16) == page or s.deck.is_playing() or s.deck.is_paused():
                 s.tick()
-                lv = [max(lv[0], s.last_levels[0]), max(lv[1], s.last_levels[1])]
+                post = s.last_levels
             else:
-                s.deck.take_levels()
-        pl = self.playlist.take_levels()
-        self.playlist.tick(pl)
-        lv = [max(lv[0], pl[0]), max(lv[1], pl[1])]
-        self.master_meter.set_levels(lv)
+                post = s.deck.take_levels()[1]
+            power = [power[0] + post[0] ** 2, power[1] + post[1] ** 2]
+        pl_pre, pl_post = self.playlist.take_levels()
+        self.playlist.tick(pl_pre)
+        power = [power[0] + pl_post[0] ** 2, power[1] + pl_post[1] ** 2]
+        self.master_meter.set_levels([min(1.0, power[0] ** 0.5), min(1.0, power[1] ** 0.5)])
         if self.long_view and self.long_view.isVisible() and self._ticks % 2 == 0:
             items = [(f"{s.number}. {s.display_name()}", max(0, s.deck.duration() - s.deck.position()),
                       s.deck.duration()) for s in self.strips if s.deck.is_playing() or s.deck.is_paused()]
