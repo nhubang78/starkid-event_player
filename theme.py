@@ -295,9 +295,18 @@ QPushButton#deGrid {{ padding:2px 10px; min-height:16px; border-radius:6px; font
     background:{wave_bg}; color:{warn}; border:1px solid {warn}; }}
 QPushButton#deGrid:checked {{ background:{warn}; color:#1a1202; }}
 QWidget#beatScope {{ background:{bg}; }}
+QFrame#sfxPanel {{ background:{surface}; border:1px solid {border}; border-radius:12px; }}
+QFrame#sfxPanel QLabel, QFrame#sfxPanel QFrame {{ background:transparent; border:none; }}
+QLabel#sfxTitle {{ font-weight:800; letter-spacing:2px; color:{text}; }}
+QCheckBox {{ color:{text}; spacing:6px; }}
 QWidget#modeBar {{ background:{toolbar}; border-bottom:1px solid {border}; }}
 QWidget#modeBar QLabel {{ background:transparent; }}
-QPushButton#mcBtn {{ padding:5px 14px; border-radius:8px; font-weight:700; }}
+QFrame#mcGroup {{ background:{surface2}; border:1px solid {border}; border-radius:10px; }}
+QFrame#mcGroup QLabel {{ background:transparent; }}
+QPushButton#mcBtn {{ padding:4px 12px; border-radius:7px; font-weight:700; }}
+QToolButton#mcMore {{ border:none; background:transparent; color:{text_dim}; font-size:12pt; font-weight:700;
+                     padding:0 4px; border-radius:5px; }}
+QToolButton#mcMore:hover {{ background:{hover}; color:{text}; }}
 QPushButton#mcBtn:checked {{ background:{ok}; border-color:{ok}; color:white; }}
 QLabel#mcState {{ font-size:8pt; font-weight:700; color:{text_faint}; letter-spacing:1px; }}
 QLabel#mcState[state="on"] {{ color:{ok}; }}

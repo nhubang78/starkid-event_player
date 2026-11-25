@@ -481,7 +481,8 @@ class ChannelStrip(QWidget):
                 "bpm": self.bpm}
 
     def from_dict(self, d):
-        self.deck.stop()
+        if self.deck.is_playing() or self.deck.is_paused():
+            self.deck.stop()
         self.path = d.get("path", "")
         self.name = d.get("name", "")
         self.color = d.get("color", "")

@@ -176,9 +176,20 @@ def _segments(mask, min_len, max_gap):
     return [s for s in segs if s[1] - s[0] >= min_len]
 
 
-def analyze(path, progress=lambda pc, msg: None, cancel=None):
+def load_analysis(cp):
+    """Đọc kết quả phân tích đã lưu (file .npz); None nếu chưa có / hỏng."""
+    if cp and os.path.isfile(cp):
+        try:
+            with np.load(cp, allow_pickle=False) as z:
+                return {k: z[k] for k in z.files}
+        except (OSError, ValueError):
+            pass
+    return None
+
+
+def analyze(path, progress=lambda pc, msg: None, cancel=None, cache_path=None):
     cancel = cancel or threading.Event()
-    cp = _cache_path(path)
+    cp = cache_path or _cache_path(path)
     if cp and os.path.isfile(cp):
         try:
             with np.load(cp, allow_pickle=False) as z:
@@ -338,6 +349,15 @@ def analyze(path, progress=lambda pc, msg: None, cancel=None):
     return res
 
 
+def _child_analyze(path, cp):
+    """Chạy trong TIẾN TRÌNH PHỤ (PyAV không chạy cùng tiến trình với trình phát nhạc): phân tích + lưu .npz."""
+    try:
+        r = analyze(path, cache_path=cp)
+        return None if r is None else "ok"
+    except Exception as e:
+        return "error: " + str(e)
+
+
 class BeatAnalyzer(QObject):
     progress = Signal(int, str)
     done = Signal(object)
@@ -345,27 +365,56 @@ class BeatAnalyzer(QObject):
     def __init__(self, path, parent=None):
         super().__init__(parent)
         self.path = path
-        self._cancel = threading.Event()
+        self._fut = None
+        self._stopped = False
+        self._cp = _cache_path(path)
+        self._timer = QTimer(self)
+        self._timer.setInterval(100)
+        self._timer.timeout.connect(self._poll)
+        self._ticks = 0
 
     def start(self):
-        threading.Thread(target=self._run, daemon=True).start()
+        r = load_analysis(self._cp)
+        if r is not None:
+            QTimer.singleShot(0, lambda: self._emit(r))
+            return
+        from waveform import decode_pool
+        try:
+            self._fut = decode_pool().submit(_child_analyze, self.path, self._cp)
+        except Exception as e:
+            msg = str(e)
+            QTimer.singleShot(0, lambda: self._emit({"error": msg}))
+            return
+        self._timer.start()
 
     def stop(self):
-        self._cancel.set()
+        self._stopped = True
+        self._timer.stop()
 
-    def _emit(self, sig, *a):
-        if not self._cancel.is_set():
+    def _poll(self):
+        self._ticks += 1
+        if self._fut is None:
+            return
+        if not self._fut.done():
+            if not self._stopped:
+                self.progress.emit(min(95, self._ticks * 4), "Đang phân tích bài...")
+            return
+        self._timer.stop()
+        try:
+            res = self._fut.result()
+        except Exception as e:
+            res = "error: " + str(e)
+        if res == "ok":
+            self._emit(load_analysis(self._cp))
+        else:
+            self._emit({"error": res or "không đọc được file"})
+
+    def _emit(self, r):
+        if not self._stopped:
             try:
-                sig.emit(*a)
+                self.done.emit(r)
             except RuntimeError:
                 pass
-
-    def _run(self):
-        try:
-            r = analyze(self.path, lambda pc, msg: self._emit(self.progress, pc, msg), self._cancel)
-        except Exception as e:     # file hỏng / định dạng lạ
-            r = {"error": str(e)}
-        self._emit(self.done, r)
 
 
 # ================================================================== khung vẽ

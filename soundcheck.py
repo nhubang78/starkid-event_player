@@ -8,7 +8,7 @@ import math
 import time
 
 import numpy as np
-from PySide6.QtCore import QPointF, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QObject, QPointF, QRectF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QFont, QGuiApplication, QPainter, QPainterPath, QPen, QPolygonF
 from PySide6.QtMultimedia import QAudioFormat, QAudioSink, QAudioSource, QMediaDevices
 from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QFrame, QGridLayout, QHBoxLayout, QHeaderView,
@@ -56,11 +56,12 @@ def find_device(devices, name):
 
 
 # ------------------------------------------------------------------ nguồn vào (micro đo)
-class MicInput:
-    """Đọc âm thanh từ thiết bị vào, giữ bộ đệm vòng FFT_N mẫu (mono float)."""
+class MicInput(QObject):
+    """Đọc âm thanh từ thiết bị vào, giữ bộ đệm vòng FFT_N mẫu (mono float).
+    Là QObject để tín hiệu readyRead của Qt được chuyển về luồng chính (không chạy Python trên luồng âm thanh)."""
 
     def __init__(self, parent):
-        self.parent = parent
+        super().__init__(parent)
         self.src = None
         self.io = None
         self.fs = 48000
@@ -82,7 +83,7 @@ class MicInput:
         self.fmt = fmt
         self.fs = fmt.sampleRate()
         self.ch = max(1, fmt.channelCount())
-        self.src = QAudioSource(device, fmt, self.parent)
+        self.src = QAudioSource(device, fmt, self)
         self.src.setBufferSize(int(self.fs * self.ch * fmt.bytesPerSample() * 0.05))
         self.io = self.src.start()
         if self.io is None:

@@ -1,7 +1,7 @@
 """Bộ phát âm thanh (Deck) có hỗ trợ fade in/out, ducking và chọn thiết bị ra."""
 import math
 
-from PySide6.QtCore import QObject, QTimer, QUrl, Signal, QElapsedTimer
+from PySide6.QtCore import QElapsedTimer, QObject, Qt, QTimer, QUrl, Signal
 from PySide6.QtMultimedia import (QAudioBufferOutput, QAudioFormat, QAudioOutput, QMediaDevices,
                                   QMediaPlayer)
 
@@ -43,7 +43,8 @@ class Deck(QObject):
         if meter:
             self._buf = QAudioBufferOutput(self)
             self.player.setAudioBufferOutput(self._buf)
-            self._buf.audioBufferReceived.connect(self._on_buffer)
+            # QueuedConnection: dữ liệu đo VU luôn được xử lý ở luồng chính, không chạy Python trên luồng phát
+            self._buf.audioBufferReceived.connect(self._on_buffer, Qt.ConnectionType.QueuedConnection)
         self.bus = 1.0      # âm lượng Master
         self.master = 1.0   # âm lượng kênh (0..1, thang cảm nhận)
         self.duck = 1.0     # hệ số giảm khi phát jingle
@@ -55,8 +56,10 @@ class Deck(QObject):
         self._timer.setInterval(20)
         self._timer.timeout.connect(self._tick)
         self.player.mediaStatusChanged.connect(self._on_status)
-        self.player.errorOccurred.connect(lambda _e, msg: self.error.emit(msg))
-        self.player.playbackStateChanged.connect(lambda _s: self.stateChanged.emit())
+        # Nối vào phương thức của Deck (QObject, sống ở luồng chính) — KHÔNG dùng lambda: lambda chạy ngay trên
+        # luồng phát của Qt, giành khóa Python với luồng chính -> có thể treo chương trình.
+        self.player.errorOccurred.connect(self._on_error)
+        self.player.playbackStateChanged.connect(self._on_state)
         self._apply()
 
     # ---------- âm lượng ----------
@@ -115,13 +118,24 @@ class Deck(QObject):
         self._apply()
 
     def set_device(self, dev):
+        # Chỉ đổi khi thiết bị thật sự khác: setDevice khởi tạo lại bộ phát âm thanh, gọi thừa lúc vừa dừng
+        # có thể làm Qt chờ luồng âm thanh cũ (treo).
+        cur = self.out.device()
+        if not cur.isNull() and not dev.isNull() and bytes(cur.id()) == bytes(dev.id()):
+            return
         self.out.setDevice(dev)
 
     # ---------- điều khiển ----------
+    def _player_play(self):
+        self.player.play()
+
+    def _player_stop(self):
+        self.player.stop()
+
     def load(self, path: str):
         self._pending = None
         self.cancel_fade()
-        self.player.stop()
+        self._player_stop()
         self.player.setSource(QUrl.fromLocalFile(path))
 
     def play(self, fade_ms: int = 0):
@@ -129,12 +143,12 @@ class Deck(QObject):
         if fade_ms > 0:
             self.gain = 0.0
             self._apply()
-            self.player.play()
+            self._player_play()
             self.fade_to(1.0, fade_ms)
         else:
             self.gain = 1.0
             self._apply()
-            self.player.play()
+            self._player_play()
 
     _READY = (QMediaPlayer.MediaStatus.LoadedMedia, QMediaPlayer.MediaStatus.BufferedMedia,
               QMediaPlayer.MediaStatus.BufferingMedia, QMediaPlayer.MediaStatus.EndOfMedia)
@@ -155,7 +169,7 @@ class Deck(QObject):
         self._pending = (start_ms, fade_ms)
         self.gain = 0.0
         self._apply()
-        self.player.play()
+        self._player_play()
 
     def _apply_pending(self):
         if self._pending is None:
@@ -186,7 +200,7 @@ class Deck(QObject):
     def _hard_stop(self):
         self._pending = None
         self.cancel_fade()
-        self.player.stop()
+        self._player_stop()
         self.gain = 1.0
         self._apply()
 
@@ -227,6 +241,12 @@ class Deck(QObject):
                 then()
 
     # ---------- trạng thái ----------
+    def _on_error(self, _err, msg):
+        self.error.emit(msg)
+
+    def _on_state(self, _st):
+        self.stateChanged.emit()
+
     def _on_status(self, st):
         if st in (QMediaPlayer.MediaStatus.LoadedMedia, QMediaPlayer.MediaStatus.BufferedMedia):
             self._apply_pending()

@@ -1,10 +1,8 @@
 """Dạng sóng + trình chọn đoạn phát (điểm bắt đầu / kết thúc) cho một kênh."""
 import hashlib
 import os
-import queue
 import re
 import struct
-import threading
 from array import array
 
 from PySide6.QtCore import QLineF, QObject, QPointF, QRectF, QStandardPaths, Qt, QTimer, Signal
@@ -97,9 +95,9 @@ def load_cached(path):
         return None
 
 
-def _save_cached(path, data):
+def _save_cached(path, data, cache_file=None):
     _CACHE[path] = data
-    f = _cache_file(path)
+    f = cache_file or _cache_file(path)
     if not f:
         return
     try:
@@ -112,8 +110,9 @@ def _save_cached(path, data):
         pass
 
 
-def compute_wave(path, progress=None, cancel=None):
-    """Giải mã file bằng PyAV (FFmpeg) và tính đỉnh sóng. Trả về WaveData hoặc None."""
+def compute_wave(path, progress=None, cancel=None, cache_file=None):
+    """Giải mã file bằng PyAV (FFmpeg) và tính đỉnh sóng. Trả về WaveData hoặc None.
+    Trong chương trình, hàm này chỉ chạy ở TIẾN TRÌNH PHỤ (xem decode_pool) — không chạy cùng trình phát nhạc."""
     import av
     samples = array("h")
     with av.open(path) as c:
@@ -146,69 +145,113 @@ def compute_wave(path, progress=None, cancel=None):
         mins.append(min(seg))
         maxs.append(max(seg))
     data = WaveData(mins, maxs, step * 1000 / RATE, n * 1000 / RATE)
-    _save_cached(path, data)
+    _save_cached(path, data, cache_file)
     return data
 
 
+# ---------------------------------------------------------------- tiến trình phụ giải mã
+# Giải mã bằng PyAV (FFmpeg) trong TIẾN TRÌNH RIÊNG, không phải luồng: chạy PyAV cùng tiến trình với trình phát
+# nhạc của Qt thỉnh thoảng làm cả chương trình treo cứng khi đang dừng / đổi bài. Tiến trình phụ ghi kết quả ra
+# file đệm, tiến trình chính chỉ đọc file đó.
+_POOL = None
+
+
+def decode_pool():
+    global _POOL
+    if _POOL is None:
+        import concurrent.futures
+        import multiprocessing
+        _POOL = concurrent.futures.ProcessPoolExecutor(max_workers=1,
+                                                       mp_context=multiprocessing.get_context("spawn"))
+    return _POOL
+
+
+def shutdown_pool():
+    global _POOL
+    if _POOL is not None:
+        try:
+            _POOL.shutdown(wait=False, cancel_futures=True)
+        except Exception:
+            pass
+        _POOL = None
+
+
+def _child_wave(path, cache_file):
+    """Chạy trong tiến trình phụ: tính dạng sóng và ghi file đệm. Trả về True nếu thành công."""
+    try:
+        return compute_wave(path, cache_file=cache_file) is not None
+    except Exception:
+        return False
+
+
 class WaveformLoader(QObject):
-    """Đọc dạng sóng trong luồng nền; báo % tiến độ và kết quả."""
+    """Đọc dạng sóng (giải mã ở tiến trình phụ); báo kết quả qua tín hiệu done."""
     done = Signal(object)        # WaveData hoặc None
-    progress = Signal(int)       # %
+    progress = Signal(int)       # % (không còn chi tiết — giữ để tương thích)
 
     def __init__(self, path, parent=None):
         super().__init__(parent)
         self.path = path
-        self._cancel = threading.Event()
+        self._fut = None
+        self._stopped = False
+        self._timer = QTimer(self)
+        self._timer.setInterval(80)
+        self._timer.timeout.connect(self._poll)
 
     def start(self):
         data = load_cached(self.path)
         if data is not None:
-            QTimer.singleShot(0, lambda: self.done.emit(data))
+            QTimer.singleShot(0, lambda: self._emit(data))
             return
-        threading.Thread(target=self._run, daemon=True).start()
+        cf = _cache_file(self.path)
+        if not cf:
+            QTimer.singleShot(0, lambda: self._emit(None))
+            return
+        try:
+            self._fut = decode_pool().submit(_child_wave, self.path, cf)
+        except Exception:
+            QTimer.singleShot(0, lambda: self._emit(None))
+            return
+        self._timer.start()
 
     def stop(self):
-        self._cancel.set()
+        self._stopped = True
+        self._timer.stop()
 
-    def _run(self):
+    def _poll(self):
+        if self._fut is None or not self._fut.done():
+            return
+        self._timer.stop()
         try:
-            data = compute_wave(self.path, lambda pc: self._emit(self.progress, pc), self._cancel)
+            ok = self._fut.result()
         except Exception:
-            data = None
-        self._emit(self.done, data)
+            ok = False
+        self._emit(load_cached(self.path) if ok else None)
 
-    def _emit(self, sig, value):
-        if self._cancel.is_set():
+    def _emit(self, value):
+        if self._stopped:
             return
         try:
-            sig.emit(value)
+            self.done.emit(value)
         except RuntimeError:      # hộp thoại đã đóng
             pass
 
 
-# ----- đọc trước dạng sóng khi nạp nhạc vào kênh (1 luồng nền, lần lượt)
-_prefetch_q = queue.Queue()
-_prefetch_started = False
+# ----- đọc trước dạng sóng khi nạp nhạc vào kênh (tiến trình phụ, lần lượt)
+_prefetched = set()
 
 
 def prefetch(path):
-    global _prefetch_started
-    if not path or path in _CACHE:
+    if not path or path in _CACHE or path in _prefetched or not os.path.isfile(path):
         return
-    _prefetch_q.put(path)
-    if not _prefetch_started:
-        _prefetch_started = True
-        threading.Thread(target=_prefetch_worker, daemon=True).start()
-
-
-def _prefetch_worker():
-    while True:
-        path = _prefetch_q.get()
-        try:
-            if os.path.isfile(path) and load_cached(path) is None:
-                compute_wave(path)
-        except Exception:
-            pass
+    cf = _cache_file(path)
+    if not cf or os.path.isfile(cf):
+        return
+    _prefetched.add(path)
+    try:
+        decode_pool().submit(_child_wave, path, cf)
+    except Exception:
+        _prefetched.discard(path)
 
 
 # ---------------------------------------------------------------- khung vẽ sóng

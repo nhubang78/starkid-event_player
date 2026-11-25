@@ -3,7 +3,7 @@ import json
 import os
 import sys
 
-from PySide6.QtCore import QSettings, QSize, QStandardPaths, Qt, QTime, QTimer
+from PySide6.QtCore import QEvent, QObject, QSettings, QSize, QStandardPaths, Qt, QTime, QTimer
 from PySide6.QtCore import QRectF
 from PySide6.QtGui import QColor, QFont, QIcon, QKeySequence, QPainter, QShortcut
 from PySide6.QtWidgets import (QApplication, QButtonGroup, QComboBox, QDialog, QDialogButtonBox,
@@ -23,6 +23,7 @@ from longview import LongView
 from soundcheck import SoundCheckPage
 from deck_editor import DeckEditor
 from ducking import Ducker, DuckSettingsDialog, MicLevel
+from sfx import SFX_KEYS, SfxPanel
 from shortcuts import DEFAULT_KEYS, NAV_KEYS, ShortcutDialog
 from shortcuts import LABELS as SHORTCUT_LABELS
 from widgets import Fader, VUMeter, glyph_icon, key_label, shape_icon
@@ -353,6 +354,9 @@ class MainWindow(QMainWindow):
         pv = QVBoxLayout(page_area)
         pv.setContentsMargins(0, 0, 0, 0)
         pv.setSpacing(10)
+        self.sfx = SfxPanel(self)
+        self.sfx.changed.connect(self.mark_dirty)
+        pv.addWidget(self.sfx)
         pv.addWidget(self.deck_editor)
         pv.addWidget(self.stack, 1)
         self.body_scroll.setWidget(page_area)
@@ -454,13 +458,13 @@ class MainWindow(QMainWindow):
         self.sp_xfade.setToolTip("Thời gian chuyển mượt (bài cũ nhỏ dần / bài mới to dần)")
         self.sp_xfade.valueChanged.connect(self.set_xfade)
         h.addWidget(self.sp_xfade)
-        h.addSpacing(14)
-        sep = QFrame()
-        sep.setObjectName("tbSep")
-        sep.setFixedHeight(24)
-        h.addWidget(sep)
-        h.addSpacing(14)
+        h.addStretch(1)                              # nhóm MC NÓI nằm sát mép phải
         self.ducker = Ducker(self)
+        mc = QFrame()
+        mc.setObjectName("mcGroup")
+        ml = QHBoxLayout(mc)
+        ml.setContentsMargins(4, 3, 6, 3)
+        ml.setSpacing(8)
         self.btn_mc = QPushButton("🎙  MC NÓI")
         self.btn_mc.setObjectName("mcBtn")
         self.btn_mc.setCheckable(True)
@@ -468,33 +472,34 @@ class MainWindow(QMainWindow):
         self.btn_mc.setToolTip("Bật: khi MC nói vào micro, nhạc (các kênh + Playlist) tự giảm; MC ngừng nói thì nhạc "
                                "lên lại.\nBấm ⋮ để chọn micro, ngưỡng, mức giảm.")
         self.btn_mc.toggled.connect(self.set_mc)
-        h.addWidget(self.btn_mc)
-        self.mc_level = MicLevel(self.ducker, 70, 8)
-        h.addWidget(self.mc_level)
-        lb2 = QLabel("nhạc còn")
-        lb2.setObjectName("fieldLabel")
-        h.addWidget(lb2)
+        ml.addWidget(self.btn_mc)
+        self.mc_level = MicLevel(self.ducker, 56, 6)
+        self.mc_level.setToolTip("Mức micro MC (vạch trắng = ngưỡng nói)")
+        ml.addWidget(self.mc_level)
         self.sp_duck = QSpinBox()
         self.sp_duck.setRange(0, 95)
         self.sp_duck.setSingleStep(5)
-        self.sp_duck.setSuffix(" %")
+        self.sp_duck.setPrefix("nhạc còn ")
+        self.sp_duck.setSuffix("%")
         self.sp_duck.setValue(int(self.ducker.cfg["pct"]))
-        self.sp_duck.setFixedWidth(78)
+        self.sp_duck.setFixedWidth(112)
         self.sp_duck.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self.sp_duck.setToolTip("Âm lượng nhạc khi MC nói, theo % như fader (100% = không giảm, 0% = tắt hẳn)")
         self.sp_duck.valueChanged.connect(self.ducker.set_pct)
-        h.addWidget(self.sp_duck)
+        ml.addWidget(self.sp_duck)
         self.lbl_mc = QLabel("TẮT")
         self.lbl_mc.setObjectName("mcState")
-        self.lbl_mc.setMinimumWidth(110)
-        h.addWidget(self.lbl_mc)
-        b = QPushButton("⋮")
-        b.setObjectName("deBtn")
+        self.lbl_mc.setFixedWidth(78)
+        self.lbl_mc.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        ml.addWidget(self.lbl_mc)
+        b = QToolButton()
+        b.setText("⋮")
+        b.setObjectName("mcMore")
         b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         b.setToolTip("Cài đặt MC nói: micro, ngưỡng, mức giảm, thời gian")
         b.clicked.connect(self.open_duck_settings)
-        h.addWidget(b)
-        h.addStretch(1)
+        ml.addWidget(b)
+        h.addWidget(mc)
         self.ducker.changed.connect(self.update_mc_state)
         self.mode_bar = bar
         self.set_xmode(self.xmode, mark=False)
@@ -529,10 +534,12 @@ class MainWindow(QMainWindow):
 
     def update_mc_state(self):
         d = self.ducker
-        if not d.enabled:
-            text, st = ("ĐANG TRẢ NHẠC" if d.ducking else "TẮT"), "off"
+        if d.by_sfx and d.ducking:
+            text, st = "HIỆU ỨNG", "duck"
+        elif not d.enabled:
+            text, st = ("TRẢ NHẠC" if d.ducking else "TẮT"), "off"
         elif d.ducking:
-            text, st = f"ĐANG GIẢM CÒN {d.cfg['pct']}%", "duck"
+            text, st = f"GIẢM {d.cfg['pct']}%", "duck"
         else:
             text, st = "ĐANG NGHE", "on"
         if self.lbl_mc.text() != text:
@@ -626,6 +633,10 @@ class MainWindow(QMainWindow):
             seq = self.keys.get(act, "")
             if seq and seq not in own:          # phím riêng của kênh được ưu tiên
                 self._add_shortcut(seq, fn)
+        used = own | {v for v in self.keys.values() if v}
+        for i, key in enumerate(SFX_KEYS):
+            if key not in used:
+                self._add_shortcut(key, lambda i=i: self.sfx.trigger(i))
         for s in self.strips:
             if s.own_key not in ("", "-"):
                 self._add_shortcut(s.own_key, s.cart_clicked)
@@ -754,6 +765,7 @@ class MainWindow(QMainWindow):
     def show_page(self, i):
         self.stack.setCurrentIndex(i)
         self.deck_editor.setVisible(i < 2)
+        self.sfx.setVisible(i < 3)
         self.pg_buttons[i].setChecked(True)
         if i < 2:
             self.last_cart_page = i
@@ -834,6 +846,7 @@ class MainWindow(QMainWindow):
         self.playlist.retheme()
         self.soundcheck.retheme()
         self.deck_editor.retheme()
+        self.sfx.retheme()
         self.master_meter.update()
         self.settings.setValue("theme", theme.current())
         set_dark_titlebar(self)
@@ -925,6 +938,7 @@ class MainWindow(QMainWindow):
 
     def stop_all(self):
         self.soundcheck.stop_output()
+        self.sfx.stop_all()
         decks = [s.deck for s in self.strips] + self.playlist.decks
         if any(d.fading_out() for d in decks):
             self.panic()
@@ -934,8 +948,19 @@ class MainWindow(QMainWindow):
         if self.playlist.is_active():
             self.playlist.stop_main(500)
 
+    def settle_audio(self, max_ms=400):
+        """Sau khi dừng hết: chờ các bộ phát dừng hẳn (luồng âm thanh kết thúc) rồi mới nạp dự án khác."""
+        from PySide6.QtCore import QElapsedTimer
+        decks = [s.deck for s in self.strips] + list(self.playlist.decks) + [p.deck for p in self.sfx.pads]
+        t = QElapsedTimer()
+        t.start()
+        while t.elapsed() < max_ms and any(d.is_playing() or d.is_paused() for d in decks):
+            QApplication.processEvents()
+        QApplication.processEvents()
+
     def panic(self):
         self.soundcheck.out.stop_now()
+        self.sfx.panic()
         for s in self.strips:
             s.stop()
         for d in self.playlist.decks:
@@ -978,6 +1003,8 @@ class MainWindow(QMainWindow):
             s.apply_device()
         self.playlist.set_device(find_output_device(self.cfg["main_device"]))
         self.pre.set_device(find_output_device(self.cfg["pre_device"]))
+        if hasattr(self, "sfx"):
+            self.sfx.apply_device()
         # Master điều khiển sound card mà các kênh đang phát ra
         dev = find_output_device(self.cfg["cart_device"])
         dev_id = bytes(dev.id()).decode("utf-8", "ignore") if not dev.isNull() else ""
@@ -1037,6 +1064,8 @@ class MainWindow(QMainWindow):
         if self.sysvol.muted():
             sys_amp = 0.0
         self.deck_editor.tick()
+        if self._ticks % 2 == 0:
+            self.sfx.tick()
         self.master_meter.set_levels([min(1.0, power[0] ** 0.5 * sys_amp), min(1.0, power[1] ** 0.5 * sys_amp)])
         if self.long_view and self.long_view.isVisible() and self._ticks % 2 == 0:
             self.long_view.refresh(self.cfg["warn_sec"] * 1000)
@@ -1056,10 +1085,13 @@ class MainWindow(QMainWindow):
 
     def project_data(self):
         return {"app": APP_NAME, "version": 1, "channels": [s.to_dict() for s in self.strips],
-                "master": self.master.value(), "single": self.single, "xmode": self.xmode, "xfade_s": self.xfade_s, "go_next": self.go_next,
+                "master": self.master.value(), "single": self.single, "xmode": self.xmode, "xfade_s": self.xfade_s, "sfx": self.sfx.to_dict(), "go_next": self.go_next,
                 "playlist": self.playlist.to_dict()}
 
     def apply_project(self, d):
+        if any(s.deck.is_playing() or s.deck.is_paused() for s in self.strips) or self.playlist.is_active():
+            self.panic()                  # nạp dự án khác khi đang phát: dừng hết và chờ bộ phát dừng hẳn
+            self.settle_audio()
         self._loading = True
         try:
             chans = d.get("channels", [])
@@ -1075,6 +1107,7 @@ class MainWindow(QMainWindow):
             self.xfade_s = self.sp_xfade.value()
             self.go_next = int(d.get("go_next", 1))
             self.playlist.from_dict(d.get("playlist", {}))
+            self.sfx.from_dict(d.get("sfx", {}))
         finally:
             self._loading = False
         self.update_go()
@@ -1096,6 +1129,7 @@ class MainWindow(QMainWindow):
         if self.locked or not self.confirm_discard():
             return
         self.panic()
+        self.settle_audio()
         self.apply_project({})
         self.project_path = ""
         self.dirty = False
@@ -1116,6 +1150,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Lỗi", f"Không mở được dự án:\n{e}")
             return
         self.panic()
+        self.settle_audio()
         self.apply_project(data)
         self.project_path = path
         self.settings.setValue("projDir", os.path.dirname(path))
@@ -1251,13 +1286,32 @@ class MainWindow(QMainWindow):
         self.write_autosave()
         self.soundcheck.shutdown()
         self.ducker.shutdown()
+        from waveform import shutdown_pool
+        shutdown_pool()
         self.settings.setValue("geometry", self.saveGeometry())
         if self.long_view:
             self.long_view.close()
         e.accept()
 
 
+class TypingGuard(QObject):
+    """Khi đang gõ trong ô nhập (tên, lời nhắn, số...), phím chữ / số / Space đi vào ô nhập
+    thay vì kích hoạt phím tắt (phát kênh, hiệu ứng, GO)."""
+
+    def eventFilter(self, obj, e):
+        if e.type() == QEvent.Type.ShortcutOverride:
+            from PySide6.QtWidgets import QAbstractSpinBox, QLineEdit, QPlainTextEdit, QTextEdit
+            w = QApplication.focusWidget()
+            if isinstance(w, (QLineEdit, QAbstractSpinBox, QTextEdit, QPlainTextEdit)):
+                mods = e.modifiers() & ~Qt.KeyboardModifier.ShiftModifier & ~Qt.KeyboardModifier.KeypadModifier
+                if not mods and (e.text().strip() or e.key() == Qt.Key.Key_Space):
+                    e.accept()
+        return False
+
+
 def main():
+    import multiprocessing
+    multiprocessing.freeze_support()          # bản exe: tiến trình phụ giải mã (dạng sóng, Soi nhịp)
     if len(sys.argv) >= 4 and sys.argv[1] == "--wave-test":     # kiểm tra bộ đọc sóng trong bản exe
         import time
         from waveform import compute_wave
@@ -1267,6 +1321,21 @@ def main():
             msg = f"OK {d.duration / 1000:.1f}s nhạc, đọc {time.time() - t0:.2f}s" if d else "NONE"
         except Exception as e:
             msg = f"LỖI {e!r}"
+        with open(sys.argv[3], "w", encoding="utf-8") as fh:
+            fh.write(msg)
+        return
+    if len(sys.argv) >= 4 and sys.argv[1] == "--decode-test":   # kiểm tra tiến trình phụ giải mã trong bản exe
+        import tempfile
+        import time
+        import waveform
+        cf = os.path.join(tempfile.gettempdir(), "starkid_decode_test.peaks")
+        t0 = time.time()
+        try:
+            ok = waveform.decode_pool().submit(waveform._child_wave, sys.argv[2], cf).result(timeout=120)
+            msg = f"OK={ok} file={os.path.isfile(cf)} {time.time() - t0:.1f}s"
+        except Exception as e:
+            msg = f"LỖI {e!r}"
+        waveform.shutdown_pool()
         with open(sys.argv[3], "w", encoding="utf-8") as fh:
             fh.write(msg)
         return
@@ -1290,6 +1359,8 @@ def main():
     app.setPalette(theme.palette())
     app.setStyleSheet(theme.build_stylesheet())
     app.setFont(QFont("Segoe UI", 9))
+    guard = TypingGuard(app)
+    app.installEventFilter(guard)
     w = MainWindow()
     w.showMaximized()
     sys.exit(app.exec())

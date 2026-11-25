@@ -25,6 +25,9 @@ Fader mỗi kênh chỉnh to/nhỏ riêng kênh đó; fader **Master** là âm l
 **Khi phát kênh mới**: Chồng (phát chồng) / Cắt (tắt bài cũ ngay) / Mượt (crossfade theo số giây).
 **MC NÓI**: nghe micro MC, khi MC nói thì nhạc tự giảm còn X % (mặc định 15%), ngừng nói thì nhạc lên lại.
 
+**Bảng HIỆU ỨNG**: 12 ô (phím A S D F G H J K Z X C V) — kéo thả file, chế độ Một lần / Bật–Tắt / Lặp,
+màu, âm lượng riêng; "Hạ nhạc nền" tự giảm nhạc khi hiệu ứng kêu.
+
 **Giao diện Tối / Sáng**: nút Sáng/Tối trên thanh công cụ hoặc menu Hiển thị.
 
 **Bảng chỉnh bài** (trên lưới kênh): dạng sóng của kênh đang chọn (zoom, tua, chọn đoạn, 1/2 sóng),
@@ -60,5 +63,6 @@ Chương trình tự nhớ toàn bộ trạng thái khi tắt và mở lại y n
 | `deck_editor.py` | Bảng chỉnh bài: dạng sóng, BPM, CUE, IN / OUT, LOOP, nghe trước |
 | `beatscope.py` | Soi nhịp: phân tích nhạc cụ / phách / ô nhịp / đoạn / Drop + cửa sổ hiển thị |
 | `ducking.py` | MC nói: nghe micro, tự giảm nhạc (ducking) + cài đặt |
+| `sfx.py` | Bảng hiệu ứng: 12 ô phát nhanh, chế độ bấm, hạ nhạc nền |
 | `soundcheck.py` | Trang Âm thanh: RTA, mức micro, phát hiện hú, ring-out, đo phòng, tone |
 | `guide.py` / `longview.py` | Cửa sổ Hướng dẫn / màn hình Long View |

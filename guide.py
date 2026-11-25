@@ -190,7 +190,7 @@ dài hơn thì dùng fade-in đó. Áp dụng cả khi Playlist bắt đầu lú
 <p>Bật nút <b>🎙 MC NÓI</b>: phần mềm nghe micro MC; khi có tiếng nói vượt ngưỡng, nhạc (các kênh + Playlist) tự giảm
 xuống còn <b>X %</b> âm lượng (ô <i>nhạc còn</i>, mặc định 15%, tính theo % như fader); MC ngừng nói một lúc thì nhạc lên lại từ từ. Nhãn bên cạnh cho biết trạng thái:
 <span style='color:{T["ok"]}'><b>ĐANG NGHE</b></span> /
-<span style='color:{T["warn"]}'><b>ĐANG GIẢM CÒN 15%</b></span>.</p>
+<span style='color:{T["warn"]}'><b>GIẢM 15%</b></span>.</p>
 <ul>
 <li><b>Nối dây:</b> máy tính phải nghe được tiếng MC &mdash; micro cắm vào máy tính, hoặc ngõ <b>AUX / REC</b> của mixer
 (có tiếng micro MC) cắm vào cổng line-in.</li>
@@ -246,6 +246,28 @@ Phím {K('Space')}, {K('Esc')}, {K('↑')} {K('↓')} cũng dùng được khi �
 <li><b>Lời nhắn</b>: gõ nội dung rồi Enter để hiện chữ thật to trên Long View (ví dụ "MC chuẩn bị lên",
 "Còn 2 phút"). Bấm <b>Xóa</b> để tắt lời nhắn.</li>
 </ul>
+"""),
+    ("Bảng hiệu ứng", "12 ô phát nhanh: vỗ tay, chuông, trống dồn...", f"""
+<p>Bảng <b>⚡ HIỆU ỨNG</b> (trên bảng chỉnh bài, ở trang Audio và Playlist) có 12 ô phát nhanh với phím
+{" ".join(K(k) for k in "ASDFGHJKZXCV")}.</p>
+<ul>
+<li><b>Nạp hiệu ứng:</b> kéo thả file vào ô, hoặc bấm ô trống để chọn file.</li>
+<li><b>Phát:</b> bấm ô hoặc phím của ô. Ô đang phát sáng màu và có thanh tiến trình.</li>
+<li><b>Tùy chỉnh:</b> chuột phải vào ô (hoặc bấm <b>···</b>): chọn file, đổi tên, màu, chế độ bấm, âm lượng riêng của ô,
+nghe thử ra tai nghe, bỏ hiệu ứng.</li>
+<li><b>■ Dừng:</b> dừng mọi hiệu ứng. Thanh trượt bên cạnh tiêu đề là âm lượng chung của các hiệu ứng.</li>
+<li><b>Hạ nhạc nền còn X %:</b> khi hiệu ứng đang kêu, nhạc (các kênh + Playlist) tự giảm để hiệu ứng nghe rõ,
+hết hiệu ứng thì nhạc lên lại (mặc định 50%).</li>
+</ul>
+<table cellspacing='0' cellpadding='7' width='100%'>
+<tr><th>Chế độ bấm</th><th>Hoạt động</th></tr>
+<tr><td><b>Một lần</b></td><td>Bấm là phát từ đầu; bấm lại khi đang phát = phát lại từ đầu.</td></tr>
+<tr><td><b>Bật / Tắt</b></td><td>Bấm lần 1 phát, lần 2 dừng.</td></tr>
+<tr><td><b>Lặp</b></td><td>Phát lặp liên tục (ví dụ trống dồn) cho tới khi bấm lại.</td></tr>
+</table>
+<p>Hiệu ứng phát ra thiết bị của các kênh, được lưu cùng dự án và không bị MC NÓI làm giảm.</p>
+{tip("Phím riêng của kênh (Cài đặt kênh) được ưu tiên hơn phím của ô hiệu ứng. Khi đang gõ trong ô nhập chữ, các "
+     "phím chữ cái chỉ gõ chữ chứ không phát hiệu ứng.")}
 """),
     ("Bảng chỉnh bài", "Dạng sóng, BPM, CUE, cắt IN / OUT, LOOP, nghe trước", f"""
 <p>Bảng phía trên lưới kênh (trang Audio 1-16 / 17-32) hiện <b>kênh đang chọn</b> &mdash; kênh có viền xanh.
@@ -365,7 +387,8 @@ nhạc đang phát <b>vẫn tiếp tục</b>. Các nút trên Long View cũng b�
         ("Bật / tắt Long View", K('F2')),
         ("Phát kênh 1–8 của trang đang xem", K('1') + " … " + K('8')),
         ("Phát kênh 9–16 của trang đang xem", " ".join(K(x) for x in "90QWERTY")),
-        ("Dừng các kênh (Playlist vẫn phát)", "chưa gán")])}
+        ("Dừng các kênh (Playlist vẫn phát)", "chưa gán"),
+        ("Phát hiệu ứng ô 1–12", " ".join(K(x) for x in "ASDFGHJKZXCV"))])}
 <h3>Phím cố định</h3>
 {table([("Hướng dẫn", K('F1')),
         ("Chuyển trang Audio 1-16 / 17-32 / Playlist / Âm thanh",

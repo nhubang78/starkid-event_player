@@ -41,6 +41,8 @@ class Ducker(QObject):
         self.enabled = False
         self.level_db = -120.0
         self.value = 1.0           # hệ số duck hiện tại (1 = không giảm)
+        self.sfx_level = None      # hàm -> % nhạc còn lại khi hiệu ứng đang kêu (None = không giảm)
+        self.by_sfx = False
         self.ducking = False
         self._last_voice = 0.0
         self._t = time.monotonic()
@@ -83,6 +85,13 @@ class Ducker(QObject):
         self.changed.emit()
         return True
 
+    def poke(self):
+        """Có nguồn giảm nhạc khác (hiệu ứng) vừa bắt đầu: chạy vòng cập nhật nếu đang nghỉ."""
+        self._poke_until = time.monotonic() + 1.0     # chờ trình phát kịp chuyển sang "đang phát"
+        if not self.timer.isActive():
+            self._t = time.monotonic()
+            self.timer.start()
+
     def restart_mic(self):
         if self.enabled:
             self.mic.stop()
@@ -103,7 +112,11 @@ class Ducker(QObject):
             voice = False
         low = self.duck_level()
         target = low if voice else 1.0
-        span = max(1e-3, 1.0 - low)
+        sfx = self.sfx_level() if self.sfx_level else None       # hiệu ứng đang kêu + "Hạ nhạc nền"
+        self.by_sfx = sfx is not None and sfx < target
+        if self.by_sfx:
+            target = sfx
+        span = max(1e-3, 1.0 - min(low, sfx if sfx is not None else 1.0))
         if target < self.value:
             self.value = max(target, self.value - span * dt / max(10, self.cfg["attack"]))
         elif target > self.value:
@@ -111,7 +124,7 @@ class Ducker(QObject):
         self.apply(self.value)
         was = self.ducking
         self.ducking = self.value < 0.999
-        if not self.enabled and not self.ducking:
+        if not self.enabled and not self.ducking and sfx is None and now > getattr(self, "_poke_until", 0):
             self.timer.stop()
         if was != self.ducking or self.enabled:
             self.changed.emit()
