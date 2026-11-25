@@ -8,7 +8,8 @@ from PySide6.QtCore import QRectF
 from PySide6.QtGui import QColor, QFont, QIcon, QKeySequence, QPainter, QShortcut
 from PySide6.QtWidgets import (QApplication, QButtonGroup, QComboBox, QDialog, QDialogButtonBox,
                                QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout,
-                               QLabel, QMainWindow, QMenu, QMessageBox, QPushButton, QSpinBox, QStackedWidget, QToolButton, QVBoxLayout,
+                               QLabel, QMainWindow, QMenu, QMessageBox, QPushButton, QScrollArea, QSizePolicy,
+                               QSpinBox, QStackedWidget, QToolButton, QVBoxLayout,
                                QWidget)
 from PySide6.QtMultimedia import QMediaDevices
 
@@ -149,6 +150,23 @@ class LockOverlay(QWidget):
     def contextMenuEvent(self, e): e.accept()
 
 
+class PageStack(QStackedWidget):
+    """Chỉ tính kích thước theo trang đang xem (QStackedWidget mặc định lấy trang lớn nhất,
+    kể cả trang đang ẩn, làm cửa sổ không co lại được)."""
+
+    def __init__(self):
+        super().__init__()
+        self.currentChanged.connect(lambda _i: self.updateGeometry())
+
+    def sizeHint(self):
+        w = self.currentWidget()
+        return w.sizeHint() if w else super().sizeHint()
+
+    def minimumSizeHint(self):
+        w = self.currentWidget()
+        return w.minimumSizeHint() if w else super().minimumSizeHint()
+
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -208,6 +226,9 @@ class MainWindow(QMainWindow):
         # --- thanh công cụ ---
         tb = QWidget()
         tb.setObjectName("toolbar")
+        # không để thanh công cụ ép cửa sổ rộng ra: update_compact() tự đổi sang chỉ-biểu-tượng khi hẹp
+        tb.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        tb.setMinimumWidth(1)
         tl = QHBoxLayout(tb)
         tl.setContentsMargins(12, 6, 12, 6)
         tl.setSpacing(2)
@@ -280,6 +301,8 @@ class MainWindow(QMainWindow):
         logo.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         logo.clicked.connect(self.show_about)
         tl.addWidget(logo)
+        self.logo = logo
+        self._compact = None
         root.addWidget(tb)
 
         self.lbl_path = QLabel()
@@ -289,15 +312,15 @@ class MainWindow(QMainWindow):
         # --- thân: các trang + cột phải ---
         self.body_w = QWidget()
         body = QHBoxLayout(self.body_w)
-        body.setContentsMargins(16, 8, 16, 10)
-        body.setSpacing(18)
-        self.stack = QStackedWidget()
+        body.setContentsMargins(10, 8, 10, 10)
+        body.setSpacing(12)
+        self.stack = PageStack()
         self.strips = []
         for page in range(2):
             w = QWidget()
             grid = QGridLayout(w)
             grid.setContentsMargins(0, 0, 0, 0)
-            grid.setHorizontalSpacing(12)
+            grid.setHorizontalSpacing(8)
             grid.setVerticalSpacing(10)
             for k in range(16):
                 n = page * 16 + k + 1
@@ -313,7 +336,14 @@ class MainWindow(QMainWindow):
         self.playlist = PlaylistPage(self)
         self.playlist.changed.connect(self.mark_dirty)
         self.stack.addWidget(self.playlist)
-        body.addWidget(self.stack, 1)
+        # khung cuộn: cửa sổ nhỏ hơn lưới kênh thì hiện thanh cuộn thay vì đòi màn hình rộng hơn
+        self.body_scroll = QScrollArea()
+        self.body_scroll.setObjectName("bodyScroll")
+        self.body_scroll.setWidgetResizable(True)
+        self.body_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.body_scroll.setWidget(self.stack)
+        self.body_scroll.viewport().setAutoFillBackground(False)
+        body.addWidget(self.body_scroll, 1)
 
         right = QVBoxLayout()
         right.setContentsMargins(0, 0, 0, 0)
@@ -355,11 +385,12 @@ class MainWindow(QMainWindow):
         right.addWidget(mf, 1)
         rw = QWidget()
         rw.setLayout(right)
-        rw.setFixedWidth(124)
+        rw.setFixedWidth(112)
         body.addWidget(rw)
         root.addWidget(self.body_w, 1)
         self.lock_overlay = LockOverlay(self.body_w)
         self.setCentralWidget(central)
+        self.setMinimumSize(820, 520)
 
         self.lbl_clock = QLabel()
         self.lbl_clock.setObjectName("clock")
@@ -977,6 +1008,28 @@ class MainWindow(QMainWindow):
 
     def show_guide(self):
         GuideDialog(self, DISPLAY_NAME, VERSION).exec()
+
+    # ---------- co giãn theo kích thước cửa sổ ----------
+    def resizeEvent(self, e):
+        super().resizeEvent(e)
+        self.update_compact()
+
+    def update_compact(self):
+        """Cửa sổ hẹp: nút thanh công cụ chỉ còn biểu tượng (tên hiện khi rê chuột), ẩn logo."""
+        w = self.width()
+        mode = 0 if w >= 1300 else 1 if w >= 1080 else 2
+        if mode == self._compact:
+            return
+        self._compact = mode
+        for b in self.tool_buttons:
+            if b.objectName() == "tool":
+                b.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon if mode == 0
+                                     else Qt.ToolButtonStyle.ToolButtonIconOnly)
+                b.setMinimumWidth(64 if mode == 0 else 0)
+            elif b.objectName() == "pageTab":
+                b.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon if mode < 2
+                                     else Qt.ToolButtonStyle.ToolButtonTextOnly)
+        self.logo.setVisible(mode == 0)
 
     def closeEvent(self, e):
         playing = any(s.deck.is_playing() for s in self.strips) or self.playlist.is_active()

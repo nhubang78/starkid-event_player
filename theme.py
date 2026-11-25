@@ -155,6 +155,10 @@ QToolButton#pageTab:hover {{ background:{hover}; color:{text}; }}
 QToolButton#pageTab:checked {{ background:{accent}; color:white; }}
 QLabel#pathBar {{ background:{bg}; padding:4px 16px 0 16px; font-size:8.5pt; color:{text_faint}; }}
 
+QScrollArea#bodyScroll {{ background:transparent; border:none; }}
+QScrollArea#bodyScroll > QWidget > QWidget {{ background:transparent; }}
+QAbstractScrollArea::corner {{ background:transparent; border:none; }}
+
 /* ---------- kênh ---------- */
 QLabel#chHead {{ padding-left:4px; color:{text_dim}; font-size:8.5pt; font-weight:600; }}
 QLabel#chHead[playing="true"] {{ color:{ok}; }}
@@ -177,8 +181,8 @@ QPushButton#chBtn:hover {{ background:{hover}; }}
 QPushButton#chBtn:pressed {{ background:{pressed}; }}
 QPushButton#chBtn:disabled {{ color:{text_faint}; background:{surface}; border-color:{border}; }}
 QPushButton#chBtn[active="true"] {{ background:{warn_soft}; border-color:{warn}; color:{warn}; }}
-QToolButton#chIcon {{ border:none; background:transparent; padding:2px; border-radius:4px;
-                     color:{text_faint}; font-size:8pt; font-weight:600; }}
+QToolButton#chIcon {{ border:none; background:transparent; padding:1px; border-radius:4px;
+                     color:{text_faint}; font-size:7.5pt; font-weight:600; }}
 QToolButton#chIcon[on="true"] {{ color:{ok}; }}
 QToolButton#chIcon:hover {{ background:{hover}; }}
 

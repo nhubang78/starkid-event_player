@@ -3,7 +3,7 @@ import math
 
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QPainter, QPen, QPixmap, QPolygonF
-from PySide6.QtWidgets import QAbstractButton, QPushButton, QSlider, QStyle, QWidget
+from PySide6.QtWidgets import QAbstractButton, QPushButton, QSizePolicy, QSlider, QStyle, QWidget
 
 import theme
 from theme import T
@@ -320,10 +320,14 @@ class CartButton(QAbstractButton):
         self.setMinimumHeight(50)
         self.setMaximumHeight(58)
         self.setAttribute(Qt.WidgetAttribute.WA_Hover)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Preferred)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def sizeHint(self):
         return QSize(140, 54)
+
+    def minimumSizeHint(self):
+        return QSize(70, 50)      # cho phép kênh co hẹp khi cửa sổ nhỏ
 
     def paintEvent(self, _e):
         s = self.strip

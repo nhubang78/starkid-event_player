@@ -69,7 +69,7 @@ class ChannelStrip(QWidget):
         frame.setObjectName("strip")
         root.addWidget(frame, 1)
         v = QVBoxLayout(frame)
-        v.setContentsMargins(7, 7, 7, 4)
+        v.setContentsMargins(5, 7, 5, 4)
         v.setSpacing(2)
 
         top = QHBoxLayout()
@@ -145,7 +145,7 @@ class ChannelStrip(QWidget):
             b.setToolTip(tip)
             b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             b.setObjectName("chIcon")
-            b.setIconSize(QSize(13, 13))
+            b.setIconSize(QSize(12, 12))
             b.clicked.connect(slot)
             bot.addWidget(b)
             return b
