@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QFileDialog, QFrame, QGr
 
 from audio import Deck
 from playlist import AUDIO_FILTER, PlaylistView, fmt_ms
+from theme import T
 from widgets import SeekSlider, VUMeter, shape_icon
 
 MODES = [("stop", "Dừng sau mỗi bài (chế độ sự kiện)"),
@@ -45,7 +46,8 @@ class PlaylistPage(QWidget):
         np = QFrame()
         np.setObjectName("nowPlaying")
         g = QGridLayout(np)
-        g.setContentsMargins(16, 12, 16, 12)
+        g.setContentsMargins(20, 14, 20, 14)
+        g.setHorizontalSpacing(14)
         self.lbl_title = QLabel("— Sẵn sàng —")
         self.lbl_title.setObjectName("bigTitle")
         self.lbl_artist = QLabel("")
@@ -71,32 +73,33 @@ class PlaylistPage(QWidget):
         g.setColumnStretch(1, 1)
         root.addWidget(np)
 
+        root.addSpacing(6)
         tr = QHBoxLayout()
+        tr.setSpacing(8)
+        self.transport_icons = []    # (nút, hình, khóa màu)
 
-        def tbtn(text, slot, tip, style="", ic=None):
+        def tbtn(text, slot, tip, kind="", ic=None):
             b = QPushButton(text)
             b.setObjectName("transport")
             if ic:
-                b.setIcon(shape_icon(*ic))
-                b.setIconSize(QSize(18, 18))
+                self.transport_icons.append((b, ic[0], ic[1]))
+                b.setIconSize(QSize(16, 16))
             b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             b.setToolTip(tip)
-            if style:
-                b.setStyleSheet(style)
+            if kind:
+                b.setProperty("kind", kind)
             b.clicked.connect(slot)
             tr.addWidget(b)
             return b
 
-        tbtn("", self.prev_track, "Bài trước (Ctrl+←)", ic=("prev", "#374151"))
-        self.btn_play = tbtn(" PHÁT", self.play_pause, "Phát / Tạm dừng (Space)",
-                             "background:#dcfce7;border-color:#22c55e;min-width:170px;", ("play", "#15803d"))
-        tbtn(" DỪNG", self.stop_main, "Dừng có fade (Esc). Bấm 2 lần = dừng ngay",
-             "background:#fee2e2;border-color:#ef4444;", ("stop", "#b91c1c"))
-        tbtn("", self.next_track, "Bài tiếp (Ctrl+→)", ic=("next", "#374151"))
-        tr.addSpacing(16)
+        tbtn("", self.prev_track, "Bài trước (Ctrl+←)", ic=("prev", "text_dim"))
+        self.btn_play = tbtn(" PHÁT", self.play_pause, "Phát / Tạm dừng (Space)", "play", ("play", "ok"))
+        tbtn(" DỪNG", self.stop_main, "Dừng có fade (Esc). Bấm 2 lần = dừng ngay", "stop", ("stop", "danger"))
+        tbtn("", self.next_track, "Bài tiếp (Ctrl+→)", ic=("next", "text_dim"))
+        tr.addSpacing(20)
 
         col = QVBoxLayout()
-        col.addWidget(QLabel("Chế độ phát"))
+        col.addWidget(self._field("Chế độ phát"))
         self.cmb_mode = QComboBox()
         self.cmb_mode.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.cmb_mode.setMinimumWidth(250)
@@ -107,7 +110,7 @@ class PlaylistPage(QWidget):
         tr.addLayout(col)
 
         col = QVBoxLayout()
-        col.addWidget(QLabel("Crossfade"))
+        col.addWidget(self._field("Crossfade"))
         self.spn_xfade = QSpinBox()
         self.spn_xfade.setRange(0, 20)
         self.spn_xfade.setSuffix(" giây")
@@ -117,7 +120,7 @@ class PlaylistPage(QWidget):
         tr.addLayout(col)
 
         col = QVBoxLayout()
-        self.lbl_vol = QLabel("Âm lượng: 80%")
+        self.lbl_vol = self._field("Âm lượng: 80%")
         col.addWidget(self.lbl_vol)
         self.sld_vol = QSlider(Qt.Orientation.Horizontal)
         self.sld_vol.setRange(0, 100)
@@ -130,7 +133,9 @@ class PlaylistPage(QWidget):
         tr.addStretch()
         root.addLayout(tr)
 
+        root.addSpacing(4)
         tr = QHBoxLayout()
+        tr.setSpacing(6)
         tr.addStretch()
         for text, slot in [("+ File", self.add_files), ("+ Thư mục", self.add_folder),
                            ("Xóa", self.remove_selected), ("Nhập...", self.open_playlist),
@@ -148,11 +153,27 @@ class PlaylistPage(QWidget):
         self.tabs.tabBarDoubleClicked.connect(self.rename_tab)
         self.tabs.currentChanged.connect(lambda _i: self.refresh_marks())
         plus = QToolButton()
-        plus.setText(" + ")
+        plus.setText("+")
+        plus.setObjectName("corner")
         plus.setToolTip("Tạo danh sách mới")
         plus.clicked.connect(lambda: self.new_playlist())
         self.tabs.setCornerWidget(plus, Qt.Corner.TopRightCorner)
         root.addWidget(self.tabs, 1)
+
+    @staticmethod
+    def _field(text):
+        lb = QLabel(text)
+        lb.setObjectName("fieldLabel")
+        return lb
+
+    def retheme(self):
+        """Vẽ lại biểu tượng theo giao diện hiện tại."""
+        for b, kind, color in self.transport_icons:
+            if b is not self.btn_play:
+                b.setIcon(shape_icon(kind, T[color]))
+        self._remain_warn = None
+        self.meter.update()
+        self.refresh_marks()
 
     # ================= DANH SÁCH =================
     def new_playlist(self, name=None, tracks=None, select=True):
@@ -515,7 +536,7 @@ class PlaylistPage(QWidget):
             self.lbl_title.setText("— Sẵn sàng —")
             self.lbl_artist.setText("Nhấn Space để phát bài tiếp theo" if nxt else "")
         self.btn_play.setText(" TẠM DỪNG" if d.is_playing() else " PHÁT")
-        self.btn_play.setIcon(shape_icon("pause" if d.is_playing() else "play", "#15803d"))
+        self.btn_play.setIcon(shape_icon("pause" if d.is_playing() else "play", T["ok"]))
 
     def now_playing(self):
         """(tên, còn lại ms, thời lượng ms) cho Long View, hoặc None."""
@@ -548,8 +569,9 @@ class PlaylistPage(QWidget):
             state = ("red" if QTime.currentTime().msec() < 500 else "dim") if warn else "normal"
             if state != self._remain_warn:
                 self._remain_warn = state
-                color = {"red": "#dc2626", "dim": "#fca5a5", "normal": "#111827"}[state]
-                self.lbl_remain.setStyleSheet(f"color:{color};")
+                self.lbl_remain.setProperty("warn", state)
+                self.lbl_remain.style().unpolish(self.lbl_remain)
+                self.lbl_remain.style().polish(self.lbl_remain)
 
         xf = self.xfade_ms()
         ct = self.cur_track()

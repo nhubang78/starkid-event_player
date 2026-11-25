@@ -5,6 +5,9 @@ from PySide6.QtCore import QPointF, QRectF, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QFont, QFontDatabase, QIcon, QPainter, QPen, QPixmap, QPolygonF
 from PySide6.QtWidgets import QAbstractButton, QPushButton, QSlider, QStyle, QWidget
 
+import theme
+from theme import T
+
 # ---------------------------------------------------------------- biểu tượng
 _ICON_FONT = None
 
@@ -129,17 +132,20 @@ class VUMeter(QWidget):
         if changed:
             self.update()
 
-    # màu LED: (sáng, tắt)
-    _ZONES = ((-6, QColor("#ef4444"), QColor("#727272")),
-              (-18, QColor("#f2b81c"), QColor("#727272")),
-              (-999, QColor("#2fb84a"), QColor("#727272")))
-    SEG = 4   # chiều cao 1 vạch LED (px), cách nhau 1px
+    # màu LED theo vùng: đỏ >= -6 dB, vàng >= -18 dB, còn lại xanh
+    _ZONES = ((-6, "#ef4444"), (-18, "#f5b81c"), (-999, "#2fc25b"))
+    SEG = 3   # chiều cao 1 vạch LED (px), cách nhau 1px
 
     def _zone(self, db):
-        for lim, on, off in self._ZONES:
+        for lim, on in self._ZONES:
             if db >= lim:
-                return on, off
-        return self._ZONES[-1][1], self._ZONES[-1][2]
+                break
+        key = (on, theme.current())
+        if key not in self._cache:
+            self._cache[key] = (QColor(on), theme.mix(T["meter_off"], on, 0.16))
+        return self._cache[key]
+
+    _cache = {}
 
     def paintEvent(self, _e):
         p = QPainter(self)
@@ -154,7 +160,12 @@ class VUMeter(QWidget):
         step = self.SEG + 1
         n = max(1, int(h // step))
         seg_h = h / n
-        p.fillRect(QRectF(x0, top, bar_w, h), QColor("#565656"))  # khe giữa các vạch
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor(T["meter_bg"]))
+        p.drawRoundedRect(QRectF(x0 - 1, top - 2, bar_w + 2, h + 4), 3, 3)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        peak_col = QColor(T["meter_peak"])
         for i in range(n):                       # i = 0 ở đáy
             y_bot = bottom - i * seg_h
             y_top = y_bot - seg_h + 1
@@ -163,20 +174,20 @@ class VUMeter(QWidget):
             on, off = self._zone(db)
             lit = mid_frac >= lit_frac
             if peak_frac is not None and abs(mid_frac - peak_frac) <= (seg_h / h) / 2:
-                color = QColor("#f5f5f5")         # vạch giữ đỉnh
+                color = peak_col                  # vạch giữ đỉnh
             else:
                 color = on if lit else off
-            p.fillRect(QRectF(x0, y_top, bar_w, y_bot - y_top), color)
+            p.fillRect(QRectF(x0 + 1, y_top, bar_w - 2, y_bot - y_top), color)
         if self.show_scale:
             f = QFont("Segoe UI")
             f.setPixelSize(9)
             p.setFont(f)
-            p.setPen(QColor("#6b6b6b"))
+            p.setPen(QColor(T["text_faint"]))
             for db, frac in SCALE:
                 y = top + frac * h
-                p.drawLine(QPointF(x0 + bar_w + 1, y), QPointF(x0 + bar_w + 4, y))
-                p.drawText(QRectF(x0 + bar_w + 5, y - 6, 30, 12),
-                           Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, str(db))
+                p.drawLine(QPointF(x0 + bar_w + 2, y), QPointF(x0 + bar_w + 4, y))
+                p.drawText(QRectF(x0 + bar_w + 6, y - 6, 30, 12),
+                           Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter, str(abs(db)))
 
     @staticmethod
     def _frac_to_db(frac):
@@ -199,14 +210,15 @@ class Fader(QSlider):
 
     def paintEvent(self, e):
         p = QPainter(self)
-        p.setPen(QColor("#a3a3a3"))
+        p.setPen(QColor(T["tick"]))
         h = self.height()
         cx = self.width() / 2
-        handle = 14
+        handle = 16
         for i in range(0, 7):
             y = handle / 2 + (h - handle) * i / 6
-            p.drawLine(QPointF(cx - 16, y), QPointF(cx - 11, y))
-            p.drawLine(QPointF(cx + 11, y), QPointF(cx + 16, y))
+            w = 5 if i in (0, 6) else 3
+            p.drawLine(QPointF(cx - 10 - w, y), QPointF(cx - 10, y))
+            p.drawLine(QPointF(cx + 10, y), QPointF(cx + 10 + w, y))
         p.end()
         super().paintEvent(e)
 
@@ -305,47 +317,101 @@ class CartButton(QAbstractButton):
         super().__init__(parent)
         self.strip = strip
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.setMinimumHeight(42)
-        self.setMaximumHeight(50)
+        self.setMinimumHeight(50)
+        self.setMaximumHeight(58)
+        self.setAttribute(Qt.WidgetAttribute.WA_Hover)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
 
     def sizeHint(self):
-        return QSize(140, 46)
+        return QSize(140, 54)
 
     def paintEvent(self, _e):
         s = self.strip
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         r = QRectF(self.rect()).adjusted(1, 1, -1, -1)
-        bg = QColor(s.cart_color())
+        stopping = s.deck.is_paused() or (s.deck.is_playing() and s.deck.fading_out())
+        playing = s.deck.is_playing() and not stopping
+        # Đang phát = nền xanh lá; đang dừng lại (tạm dừng / đang fade out) = nền vàng
+        if playing:
+            bg, fg_state = QColor(T["cart_play"]), QColor(T["cart_play_text"])
+        elif stopping:
+            bg, fg_state = QColor(T["cart_stop"]), QColor(T["cart_stop_text"])
+        elif not s.path:
+            bg, fg_state = QColor(T["cart_empty"]), None
+        else:
+            bg, fg_state = theme.cart_bg(s.color), None
         if self.isDown():
-            bg = bg.darker(110)
-        border = QColor("#22c55e") if s.deck.is_playing() else QColor("#cfcfcf")
-        p.setPen(QPen(border, 2 if s.deck.is_playing() else 1))
+            bg = bg.darker(115) if theme.is_dark() or bg.lightness() > 100 else bg.lighter(115)
+        elif self.underMouse():
+            bg = bg.lighter(112) if theme.is_dark() else bg.darker(104)
+        state_col = fg_state
+        if state_col is not None:
+            border = QPen(bg.darker(125), 1)
+        elif s.path:
+            border = QPen(QColor(T["border_strong"]), 1)
+        else:
+            border = QPen(QColor(T["border"]), 1, Qt.PenStyle.DashLine)
+        p.setPen(border)
         p.setBrush(bg)
-        p.drawRoundedRect(r, 4, 4)
-        fg = QColor("#111") if bg.lightness() > 140 else QColor("#f5f5f5")
+        p.drawRoundedRect(r.adjusted(.5, .5, -.5, -.5), 7, 7)
+        # thanh tiến trình bên trong nút khi đang phát / tạm dừng
+        if state_col is not None:
+            total = max(1, s.seg_len())
+            frac = min(1.0, max(0.0, (s.deck.position() - s.start_ms) / total))
+            bar = QRectF(r.x() + 5, r.bottom() - 6, (r.width() - 10), 3)
+            p.setPen(Qt.PenStyle.NoPen)
+            track = QColor(state_col)
+            track.setAlpha(60)
+            p.setBrush(track)
+            p.drawRoundedRect(bar, 1.5, 1.5)
+            p.setBrush(state_col)
+            p.drawRoundedRect(QRectF(bar.x(), bar.y(), bar.width() * frac, bar.height()), 1.5, 1.5)
+        if state_col is not None:
+            fg, sub = state_col, state_col
+        else:
+            light_bg = bg.lightness() > 150
+            fg = QColor("#111827") if light_bg else QColor(T["cart_text"])
+            sub = QColor("#4b5563") if light_bg else QColor(T["text_dim"])
         if s.path:
             f = QFont("Segoe UI")
             f.setPixelSize(15)
             f.setBold(True)
             p.setFont(f)
             p.setPen(fg)
-            p.drawText(QRectF(r.x(), r.y() + 2, r.width(), r.height() / 2),
+            p.drawText(QRectF(r.x(), r.y() + 1, r.width(), r.height() / 2),
                        Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom, str(s.number))
             f.setBold(False)
             f.setPixelSize(12)
             p.setFont(f)
-            name = p.fontMetrics().elidedText(s.display_name(), Qt.TextElideMode.ElideRight, int(r.width() - 12))
-            p.drawText(QRectF(r.x() + 6, r.y() + r.height() / 2, r.width() - 12, r.height() / 2 - 2),
+            name = p.fontMetrics().elidedText(s.display_name(), Qt.TextElideMode.ElideRight, int(r.width() - 14))
+            p.drawText(QRectF(r.x() + 7, r.y() + r.height() / 2, r.width() - 14, r.height() / 2 - 6),
                        Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop, name)
-            f.setPixelSize(10)
-            p.setFont(f)
-            p.setPen(QColor("#9a9a9a") if bg.lightness() > 140 else QColor("#dddddd"))
-            p.drawText(QRectF(r.x() + 5, r.y() + 3, 30, 14), Qt.AlignmentFlag.AlignLeft, s.hotkey)
+            if s.hotkey:
+                f.setPixelSize(10)
+                f.setBold(True)
+                p.setFont(f)
+                tw = p.fontMetrics().horizontalAdvance(s.hotkey) + 10
+                chip = QRectF(r.x() + 5, r.y() + 5, max(18, tw), 15)
+                c = QColor(fg)
+                c.setAlpha(28)
+                p.setPen(Qt.PenStyle.NoPen)
+                p.setBrush(c)
+                p.drawRoundedRect(chip, 4, 4)
+                p.setPen(sub)
+                p.drawText(chip, Qt.AlignmentFlag.AlignCenter, s.hotkey)
         else:
             f = QFont("Segoe UI")
             f.setPixelSize(17)
+            f.setBold(True)
             p.setFont(f)
-            p.setPen(QColor("#a3a3a3"))
-            p.drawText(r, Qt.AlignmentFlag.AlignCenter, s.hotkey)
+            p.setPen(QColor(T["text_faint"]))
+            p.drawText(r, Qt.AlignmentFlag.AlignCenter, s.hotkey or "+")
+
+    def enterEvent(self, e):
+        self.update()
+        super().enterEvent(e)
+
+    def leaveEvent(self, e):
+        self.update()
+        super().leaveEvent(e)

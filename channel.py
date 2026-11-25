@@ -2,18 +2,19 @@
 import os
 
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QColor
 from PySide6.QtWidgets import (QFileDialog, QFrame, QHBoxLayout, QLabel, QMenu, QPushButton,
                                QToolButton, QVBoxLayout, QWidget)
 
 from audio import Deck, find_output_device, percent_to_db
 from playlist import AUDIO_EXT, AUDIO_FILTER, read_meta
 from waveform import prefetch
+from theme import T
 from widgets import CartButton, Fader, SeekSlider, VUMeter, glyph_icon, shape_icon
 
 DEFAULT_FADER = 80
 FADE_STEP, FADE_QUICK_MAX = 0.5, 3.0    # nút fade trên kênh: +0,5 giây mỗi lần bấm, quá 3 giây về tắt
 _icon_cache = {}
+FILE_GLYPH = "\uEC4F"
 
 
 def icon(kind, color):
@@ -64,7 +65,7 @@ class ChannelStrip(QWidget):
         self.lbl_head = QLabel(f"Kênh {number}")
         self.lbl_head.setObjectName("chHead")
         root.addWidget(self.lbl_head)
-        frame = QFrame()
+        frame = self.frame = QFrame()
         frame.setObjectName("strip")
         root.addWidget(frame, 1)
         v = QVBoxLayout(frame)
@@ -75,9 +76,8 @@ class ChannelStrip(QWidget):
         top.setSpacing(2)
         left = QVBoxLayout()
         self.btn_file = QToolButton()
-        self.btn_file.setIcon(glyph_icon("", "#555"))
+        self.btn_file.setObjectName("fileBtn")
         self.btn_file.setToolTip("Chọn file nhạc cho kênh")
-        self.btn_file.setAutoRaise(True)
         self.btn_file.setIconSize(QSize(15, 15))
         self.btn_file.clicked.connect(self.choose_file)
         self.btn_more = QToolButton()
@@ -108,6 +108,7 @@ class ChannelStrip(QWidget):
         self.lbl_level.setObjectName("level")
         self.lbl_elapsed.setObjectName("time")
         self.lbl_time2.setObjectName("time")
+        self.lbl_time2.setProperty("remain", True)
 
         self.cart = CartButton(self)
         self.cart.clicked.connect(self.cart_clicked)
@@ -157,9 +158,16 @@ class ChannelStrip(QWidget):
         self.b_fin = tb("", lambda: self.bump_fade("in"))
         bot.addStretch()
         self.b_fout = tb("", lambda: self.bump_fade("out"))
+        for b in (self.b_fin, self.b_fout):      # hiện số giây fade cạnh biểu tượng
+            b.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         v.addLayout(bot)
 
         self.on_fader(DEFAULT_FADER, emit=False)
+        self.retheme()
+
+    def retheme(self):
+        """Vẽ lại biểu tượng theo giao diện (Tối/Sáng) hiện tại."""
+        self.btn_file.setIcon(glyph_icon(FILE_GLYPH, T["text_dim"]))
         self.refresh()
 
     # ================= thông tin =================
@@ -180,20 +188,11 @@ class ChannelStrip(QWidget):
     def manual_loop(self):
         return self.loop and (self.start_ms > 0 or self.end_ms > 0)
 
-    def cart_color(self):
-        if not self.path:
-            return "#efefef"
-        if self.deck.is_playing():
-            return QColor(self.color).darker(108).name() if self.color else "#fbd5e5"
-        if self.deck.is_paused():
-            return "#fde68a"
-        return self.color or "#ffffff"
-
     # ================= hiển thị =================
     def refresh(self):
         loaded = bool(self.path)
         playing, paused = self.deck.is_playing(), self.deck.is_paused()
-        dim, dark, green = "#b5b5b5", "#555555", "#16a34a"
+        dim, dark, green = T["text_faint"], T["text_dim"], T["ok"]
         base = dark if loaded else dim
         self.b_play.setIcon(icon("play", green if playing else base))
         self.b_state.setIcon(icon("pause" if paused else "stop", green if (playing or paused) else base))
@@ -206,6 +205,11 @@ class ChannelStrip(QWidget):
             b.setToolTip(f"{what}: {'đang tắt' if s <= 0 else fmt_sec(s)}.\n"
                          f"Bấm để tăng 0,5 giây, quá 3 giây về tắt.\n"
                          f"Muốn dài hơn 3 giây vào Cài đặt kênh.")
+            b.setText(f"{s:g}".replace(".", ",") + "s")
+            if b.property("on") != (s > 0):
+                b.setProperty("on", s > 0)
+                b.style().unpolish(b)
+                b.style().polish(b)
         for w in (self.btn_pause, self.btn_stop, self.seek, self.b_play, self.b_state):
             w.setEnabled(loaded)
         self.btn_pause.setProperty("active", paused)
@@ -213,8 +217,12 @@ class ChannelStrip(QWidget):
         self.btn_pause.style().polish(self.btn_pause)
         for lb in (self.lbl_level, self.lbl_elapsed, self.lbl_time2):
             lb.setProperty("dim", not loaded)
-            lb.style().unpolish(lb)
-            lb.style().polish(lb)
+        self.frame.setProperty("playing", playing)
+        self.frame.setProperty("paused", paused)
+        self.lbl_head.setProperty("playing", playing)
+        for w in (self.lbl_level, self.lbl_elapsed, self.lbl_time2, self.frame, self.lbl_head):
+            w.style().unpolish(w)
+            w.style().polish(w)
         if not (playing or paused):
             self.lbl_elapsed.setText("00:00:00")
             self.lbl_time2.setText(hms(self.seg_len()))
@@ -241,6 +249,7 @@ class ChannelStrip(QWidget):
                   and not self.deck.fading_out() and end - pos <= self.fade_out_s * 1000):
                 self._end_fading = True                    # nhỏ dần trước khi hết đoạn
                 self.deck.fade_to(0.0, max(1, end - pos))
+        self.cart.update()                                 # thanh tiến trình trong nút kênh
         times = ((pos - self.start_ms) // 1000, (end - pos) // 1000)
         if times != self._last_times:
             self._last_times = times
@@ -261,10 +270,8 @@ class ChannelStrip(QWidget):
             self.changed.emit()
 
     def update_out_tip(self):
-        out = self.fader.value() * self.deck.bus
-        db = percent_to_db(out / 100)
-        self.lbl_level.setToolTip(f"Mức ra loa = kênh {self.fader.value()}% × Master {round(self.deck.bus * 100)}%"
-                                  f" = {out:.0f}%" + (f"  ({db:+.1f} dB)" if db is not None else ""))
+        self.lbl_level.setToolTip(f"Âm lượng kênh {self.number}: {self.fader.value()}%.\n"
+                                  "Âm lượng chung của sound card chỉnh bằng fader Master.")
 
     # ================= điều khiển =================
     def cart_clicked(self):

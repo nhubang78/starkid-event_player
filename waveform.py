@@ -12,6 +12,8 @@ from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import (QDialog, QGridLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
                                QSlider, QVBoxLayout, QWidget)
 
+from theme import T
+
 BUCKET_MS = 5          # độ phân giải dạng sóng lưu sẵn
 _CACHE = {}            # path -> WaveData
 
@@ -271,7 +273,7 @@ class WaveformView(QWidget):
     def paintEvent(self, _e):
         p = QPainter(self)
         w, h = self.width(), self.height()
-        p.fillRect(self.rect(), QColor("#ffffff"))
+        p.fillRect(self.rect(), QColor(T["wave_bg"]))
         top = self.RULER
         wave_h = h - top - 4
         mid = top + 2 + wave_h / 2
@@ -286,14 +288,14 @@ class WaveformView(QWidget):
         while t <= self.ve:
             x = self.x_of(t)
             if x >= 0:
-                p.setPen(QColor("#d9d9d9"))
+                p.setPen(QColor(T["wave_grid"]))
                 p.drawLine(QPointF(x, top), QPointF(x, h))
-                p.setPen(QColor("#9a9a9a"))
+                p.setPen(QColor(T["wave_ruler"]))
                 p.drawLine(QPointF(x, 0), QPointF(x, top))
                 lab = fmt_short(t) if tick < 1000 else f"{int(t // 60000)}:{int(t // 1000 % 60):02d}"
                 p.drawText(QPointF(x + 3, 15), lab)
             t += tick
-        p.setPen(QColor("#e5e5e5"))
+        p.setPen(QColor(T["wave_grid"]))
         p.drawLine(QPointF(0, top), QPointF(w, top))
         # sóng
         d = self.data
@@ -311,14 +313,14 @@ class WaveformView(QWidget):
                 mx = max(d.maxs[i0:i1])
                 mn = min(d.mins[i0:i1])
                 lines.append(QLineF(x + .5, mid - mx * scale, x + .5, mid - mn * scale + 1))
-            p.setPen(QPen(QColor("#5cc78c"), 1))
+            p.setPen(QPen(QColor(T["wave"]), 1))
             p.drawLines(lines)
         elif self.message:
-            p.setPen(QColor("#888"))
+            p.setPen(QColor(T["text_dim"]))
             p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.message)
         # vùng ngoài đoạn phát: làm mờ
         xs, xe = self.x_of(self.start_ms), self.x_of(self.end_ms)
-        dim = QColor(236, 236, 236, 190)
+        dim = QColor(*T["wave_dim"])
         if xs > 0:
             p.fillRect(QRectF(0, top + 1, min(w, xs), h - top), dim)
         if xe < w:
@@ -326,16 +328,16 @@ class WaveformView(QWidget):
         # mốc
         for x in (xs, xe):
             if -2 <= x <= w + 2:
-                p.setPen(QPen(QColor("#2563eb"), 2))
+                p.setPen(QPen(QColor(T["accent"]), 2))
                 p.drawLine(QPointF(x, top), QPointF(x, h))
                 p.setPen(Qt.PenStyle.NoPen)
-                p.setBrush(QColor("#2563eb"))
+                p.setBrush(QColor(T["accent"]))
                 p.drawPolygon(QPolygonF([QPointF(x - 6, top), QPointF(x + 6, top), QPointF(x, top + 8)]))
         if self.playhead is not None:
             x = self.x_of(self.playhead)
-            p.setPen(QPen(QColor("#ef4444"), 1.5))
+            p.setPen(QPen(QColor(T["danger"]), 1.5))
             p.drawLine(QPointF(x, top), QPointF(x, h))
-        p.setPen(QColor("#cfcfcf"))
+        p.setPen(QColor(T["border_strong"]))
         p.setBrush(Qt.BrushStyle.NoBrush)
         p.drawRect(self.rect().adjusted(0, 0, -1, -1))
 
@@ -382,22 +384,7 @@ class WaveformView(QWidget):
 
 
 # ---------------------------------------------------------------- hộp thoại đoạn phát
-EDITOR_STYLE = """
-QDialog { background:#ececec; }
-QLabel#title { font-size:12pt; font-weight:700; }
-QLabel#hint, QLabel#info { color:#7a7a7a; }
-QLineEdit#time { background:white; border:1px solid #cfcfcf; border-radius:5px; padding:4px 8px;
-                 font-family:Consolas; font-size:11pt; min-width:150px; }
-QLineEdit#time:focus { border:1px solid #2563eb; }
-QPushButton { background:white; border:1px solid #cfcfcf; border-radius:5px; padding:4px 12px; min-height:22px; }
-QPushButton:hover { background:#f3f4f6; }
-QPushButton#save { background:#2563eb; color:white; border-color:#1d4ed8; min-width:100px; }
-QSlider::groove:horizontal { height:6px; background:#d4d4d4; border-radius:3px; }
-QSlider::sub-page:horizontal { background:#2563eb; border-radius:3px; }
-QSlider::handle:horizontal { width:16px; height:16px; margin:-6px 0; border-radius:8px; background:#2563eb; }
-QSlider#scroll::sub-page:horizontal { background:#d4d4d4; }
-QSlider#scroll::handle:horizontal { background:#d4d4d4; border:1px solid #bdbdbd; width:26px; }
-"""
+EDITOR_STYLE = ""   # màu lấy từ stylesheet chung (theme.py)
 
 
 class SegmentEditor(QDialog):

@@ -8,18 +8,22 @@ from PySide6.QtCore import QRectF
 from PySide6.QtGui import QColor, QFont, QIcon, QKeySequence, QPainter, QShortcut
 from PySide6.QtWidgets import (QApplication, QButtonGroup, QComboBox, QDialog, QDialogButtonBox,
                                QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout,
-                               QInputDialog, QLabel, QMainWindow, QMenu, QMessageBox, QPushButton,
-                               QSizePolicy, QSpinBox, QStackedWidget, QToolButton, QVBoxLayout,
+                               QLabel, QMainWindow, QMenu, QMessageBox, QPushButton, QSpinBox, QStackedWidget, QToolButton, QVBoxLayout,
                                QWidget)
 from PySide6.QtMultimedia import QMediaDevices
 
-from audio import Deck, find_output_device, percent_to_db
-from channel import ChannelStrip, hms
+from audio import Deck, find_output_device, percent_to_amp
+from sysvolume import SystemVolume
+from channel import ChannelStrip
 from playlist_page import PlaylistPage
 from channel_dialog import ChannelSettingsDialog
+from guide import GuideDialog
+from longview import LongView
 from shortcuts import DEFAULT_KEYS, NAV_KEYS, ShortcutDialog
 from shortcuts import LABELS as SHORTCUT_LABELS
 from widgets import Fader, VUMeter, glyph_icon, key_label, shape_icon
+import theme
+from theme import T
 
 APP_NAME = "EventPlayer"            # tên nội bộ: thư mục lưu cài đặt (giữ nguyên để không mất dữ liệu)
 DISPLAY_NAME = "Starkid Event Player"
@@ -39,66 +43,17 @@ DEFAULT_CFG = {
     "fade_in_ms": 0, "fade_out_ms": 3000, "pause_fade_ms": 200, "warn_sec": 10,
 }
 
-STYLE = """
-QMainWindow, QWidget { background:#ececec; color:#1f1f1f; font-family:'Segoe UI'; font-size:9pt; }
-QMenuBar { background:#ffffff; }
-QMenuBar::item:selected, QMenu::item:selected { background:#dbeafe; color:#111; }
-QMenu { background:#ffffff; border:1px solid #cfcfcf; }
-QWidget#toolbar { background:#f5f5f5; border-bottom:1px solid #dcdcdc; }
-QToolButton#tool { background:transparent; border:none; border-radius:6px; padding:3px 8px;
-                   font-size:9pt; color:#333; }
-QToolButton#tool:hover { background:#e4e4e4; }
-QToolButton#tool:checked { background:#dcdcdc; color:#1d4ed8; }
-QToolButton#tool[accent="true"]:checked { background:#2563eb; color:white; }
-QLabel#pathBar { background:#f5f5f5; padding:2px 12px; font-size:8.5pt; color:#333; border-bottom:1px solid #e0e0e0; }
-QLabel#chHead { padding-left:10px; color:#444; font-size:9pt; }
-QFrame#strip { background:#e2e2e2; border:1px solid #d2d2d2; border-radius:5px; }
-QFrame#strip QLabel { background:transparent; }
-QLabel#level { color:#777; font-size:8.5pt; }
-QLabel#time { color:#222; font-size:9pt; }
-QLabel#time[dim="true"], QLabel#level[dim="true"] { color:#a8a8a8; }
-QSlider { background:transparent; }
-QToolButton#more { background:#ffffff; border:1px solid #cfcfcf; border-radius:4px; font-size:6pt;
-                   min-width:22px; min-height:16px; }
-QPushButton#chBtn { background:#ffffff; border:1px solid #cfcfcf; border-radius:4px; padding:1px; font-size:8.5pt; min-height:18px; }
-QPushButton#chBtn:hover { background:#f3f4f6; }
-QPushButton#chBtn:disabled { color:#b5b5b5; background:#f2f2f2; }
-QPushButton#chBtn[active="true"] { background:#fde68a; }
-QToolButton#chIcon { border:none; background:transparent; padding:1px; }
-QToolButton#chIcon:hover { background:#d6d6d6; border-radius:3px; }
-QSlider::groove:vertical { width:6px; background:#a8a8a8; border-radius:3px; }
-QSlider::handle:vertical { height:14px; width:24px; margin:0 -9px; border-radius:4px;
-    border:1px solid #8a8a8a;
-    background:qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #ffffff, stop:0.45 #e9e9e9,
-                               stop:0.5 #7a7a7a, stop:0.55 #e9e9e9, stop:1 #d4d4d4); }
-QSlider::groove:horizontal { height:4px; background:#c4c4c4; border-radius:2px; }
-QSlider::sub-page:horizontal { background:#9ca3af; border-radius:2px; }
-QSlider::handle:horizontal { width:11px; height:11px; margin:-5px 0; border-radius:6px;
-                             background:#ffffff; border:1px solid #8a8a8a; }
-QPushButton#go { background:#fff176; border:1px solid #e0cf3a; border-radius:4px; font-size:11pt;
-                 font-weight:600; min-height:50px; }
-QPushButton#go:hover { background:#ffee58; }
-QPushButton#go:pressed { background:#fdd835; }
-QFrame#nowPlaying { background:#ffffff; border:1px solid #d6d6d6; border-radius:6px; }
-QFrame#nowPlaying QLabel { background:transparent; }
-QLabel#bigTitle { font-size:15pt; font-weight:700; }
-QLabel#artist { font-size:10pt; color:#6b7280; }
-QLabel#timeBig { font-size:22pt; font-weight:700; font-family:Consolas; }
-QLabel#next { font-size:9.5pt; color:#a16207; }
-QPushButton { background:#ffffff; border:1px solid #cfcfcf; border-radius:5px; padding:4px 10px; }
-QPushButton:hover { background:#f3f4f6; }
-QPushButton#transport { font-size:10pt; font-weight:700; min-width:60px; min-height:28px; padding:4px 14px; }
-QTreeWidget { background:#ffffff; alternate-background-color:#f7f7f7; border:1px solid #d6d6d6; }
-QTreeWidget::item { padding:2px; }
-QTreeWidget::item:selected { background:#2563eb; color:white; }
-QHeaderView::section { background:#f1f1f1; border:none; border-bottom:1px solid #ddd; padding:4px; }
-QTabWidget::pane { border:1px solid #d6d6d6; }
-QTabBar::tab { background:#e2e2e2; padding:4px 12px; border-top-left-radius:5px;
-               border-top-right-radius:5px; margin-right:2px; }
-QTabBar::tab:selected { background:#ffffff; color:#1d4ed8; }
-QComboBox, QSpinBox { background:#ffffff; border:1px solid #cfcfcf; border-radius:4px; padding:3px 6px; }
-QStatusBar { background:#f5f5f5; color:#555; }
-"""
+def set_dark_titlebar(widget):
+    """Thanh tiêu đề Windows tối/sáng theo giao diện (Windows 10 2004+ / 11)."""
+    try:
+        import ctypes
+        val = ctypes.c_int(1 if theme.is_dark() else 0)
+        hwnd = int(widget.winId())
+        for attr in (20, 19):
+            if ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, attr, ctypes.byref(val), 4) == 0:
+                break
+    except Exception:
+        pass
 
 
 # ======================================================================
@@ -145,56 +100,6 @@ class SettingsDialog(QDialog):
         for k, w in self.widgets.items():
             out[k] = ("" if w.currentIndex() == 0 else w.currentText()) if isinstance(w, QComboBox) else w.value()
         return out
-
-
-# ======================================================================
-class LongView(QWidget):
-    """Màn hình lớn cho người điều khiển: tên bài + thời gian còn lại cỡ lớn."""
-
-    def __init__(self, host):
-        super().__init__(None, Qt.WindowType.Window)
-        self.host = host
-        self.setWindowTitle(f"Long View — {DISPLAY_NAME}")
-        self.resize(1000, 600)
-        self.setStyleSheet("QWidget{background:#0b0b0b;color:#f5f5f5;font-family:'Segoe UI';}")
-        self.lay = QVBoxLayout(self)
-        self.lay.setContentsMargins(30, 20, 30, 20)
-        self.clock = QLabel()
-        self.clock.setAlignment(Qt.AlignmentFlag.AlignRight)
-        self.clock.setStyleSheet("font-size:28pt;color:#93c5fd;font-family:Consolas;")
-        self.lay.addWidget(self.clock)
-        self.rows = []
-        self.empty = QLabel("Không có kênh nào đang phát")
-        self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.empty.setStyleSheet("font-size:28pt;color:#555;")
-        self.lay.addWidget(self.empty, 1)
-        self.body = QVBoxLayout()
-        self.lay.addLayout(self.body, 1)
-
-    def update_view(self, items, warn_ms):
-        self.clock.setText(QTime.currentTime().toString("HH:mm:ss"))
-        while len(self.rows) < len(items):
-            w = QWidget()
-            h = QHBoxLayout(w)
-            name, t = QLabel(), QLabel()
-            name.setStyleSheet("font-size:30pt;font-weight:600;")
-            t.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-            h.addWidget(name, 1)
-            h.addWidget(t)
-            self.body.addWidget(w)
-            self.rows.append((w, name, t))
-        blink = QTime.currentTime().msec() < 500
-        for i, (w, name, t) in enumerate(self.rows):
-            if i < len(items):
-                label, rem, _dur = items[i]
-                w.show()
-                name.setText(label)
-                t.setText("-" + hms(rem))
-                col = ("#ef4444" if blink else "#7f1d1d") if rem <= warn_ms else "#4ade80"
-                t.setStyleSheet(f"font-size:64pt;font-weight:700;font-family:Consolas;color:{col};")
-            else:
-                w.hide()
-        self.empty.setVisible(not items)
 
 
 # ======================================================================
@@ -260,6 +165,8 @@ class MainWindow(QMainWindow):
         self._loading = False
         self.go_next = 1
         self.pre = Deck(self)
+        self.sysvol = SystemVolume()     # Master = âm lượng chính của sound card (Windows)
+        self._sys_level = None
         self.pre_title = ""
         self.long_view = None
         self.last_started = None
@@ -274,6 +181,7 @@ class MainWindow(QMainWindow):
 
         self.build_ui()
         self.build_menu()
+        self.apply_theme(self.settings.value("theme", "dark"))
         self.build_shortcuts()
         self.apply_devices()
         self.media_devices = QMediaDevices(self)
@@ -301,23 +209,26 @@ class MainWindow(QMainWindow):
         tb = QWidget()
         tb.setObjectName("toolbar")
         tl = QHBoxLayout(tb)
-        tl.setContentsMargins(10, 2, 10, 2)
+        tl.setContentsMargins(12, 6, 12, 6)
         tl.setSpacing(2)
         self.tool_buttons = []
+        self.tool_icons = []      # (nút, loại biểu tượng, mã, khóa màu) để vẽ lại khi đổi giao diện
         self.page_group = QButtonGroup(self)
         self.page_group.setExclusive(True)
 
-        def tool(text, ic, slot=None, checkable=False, tip=""):
+        def tool(text, ic, slot=None, checkable=False, tip="", color="text_dim", name="tool"):
             b = QToolButton()
-            b.setObjectName("tool")
+            b.setObjectName(name)
             b.setText(text)
-            b.setIcon(ic)
-            b.setIconSize(QSize(22, 22))
-            b.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+            self.tool_icons.append((b, ic[0], ic[1], color))
+            b.setIconSize(QSize(20, 20) if name == "tool" else QSize(16, 16))
+            b.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon if name == "tool"
+                                 else Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
             b.setCheckable(checkable)
             b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             b.setToolTip(tip or text)
-            b.setMinimumWidth(62)
+            if name == "tool":
+                b.setMinimumWidth(64)
             if slot:
                 (b.toggled if checkable else b.clicked).connect(slot)
             tl.addWidget(b)
@@ -326,44 +237,45 @@ class MainWindow(QMainWindow):
 
         def sep():
             line = QFrame()
-            line.setFrameShape(QFrame.Shape.VLine)
-            line.setStyleSheet("color:#d4d4d4;")
-            line.setFixedHeight(34)
+            line.setObjectName("tbSep")
+            line.setFixedHeight(30)
             tl.addSpacing(6)
             tl.addWidget(line)
             tl.addSpacing(6)
 
-        g = "#3a3a3a"
         self.pg_buttons = []
         for i, (text, code) in enumerate((("Audio 1-16", "\uEC4F"), ("Audio 17-32", "\uEC4F"),
                                           ("Playlist", "\uE8FD"))):
-            b = tool(text, glyph_icon(code, g), checkable=True, tip=f"{text} (Ctrl+{i + 1})")
+            b = tool(text, ("glyph", code), checkable=True, tip=f"{text} (Ctrl+{i + 1})", name="pageTab")
             self.page_group.addButton(b, i)
             self.pg_buttons.append(b)
         self.page_group.idClicked.connect(self.show_page)
         tl.addStretch(1)
-        self.btn_new = tool("Dự án mới", glyph_icon("\uE8A5", g), self.new_project)
-        self.btn_open = tool("Mở", glyph_icon("\uE838", g), self.open_project)
-        tool("Lưu", glyph_icon("\uE74E", g), self.save_project)
+        self.btn_new = tool("Dự án mới", ("glyph", "\uE8A5"), self.new_project)
+        self.btn_open = tool("Mở", ("glyph", "\uE838"), self.open_project)
+        tool("Lưu", ("glyph", "\uE74E"), self.save_project)
         sep()
-        tool("Tùy chọn", glyph_icon("\uE713", g), self.open_settings)
-        tool("Phím tắt", glyph_icon("\uE765", g), self.open_shortcuts)
-        tool("Hướng dẫn", glyph_icon("\uE897", g), self.show_guide)
+        tool("Tùy chọn", ("glyph", "\uE713"), self.open_settings)
+        tool("Phím tắt", ("glyph", "\uE765"), self.open_shortcuts)
+        tool("Hướng dẫn", ("glyph", "\uE897"), self.show_guide, tip="Hướng dẫn sử dụng (F1)")
+        self.btn_theme = tool("Giao diện", ("glyph", "\uE708"), self.toggle_theme,
+                              tip="Đổi giao diện Tối / Sáng")
         sep()
-        self.btn_single = tool("Phát đơn", shape_icon("single", g), self.set_single, True,
+        self.btn_single = tool("Phát đơn", ("shape", "single"), self.set_single, True,
                                "Phát đơn: khi phát một kênh, các kênh khác tự fade out")
         self.btn_single.setProperty("accent", True)
         tl.addStretch(2)
-        self.btn_long = tool("Long View", glyph_icon("\uE7F4", g), self.toggle_long_view, tip="Màn hình lớn")
-        tool("Dừng hết", shape_icon("stopall", "#dc2626"), self.stop_all,
-             tip="Dừng tất cả (Esc). Bấm 2 lần = dừng ngay")
-        self.btn_lock = tool("Khóa cài đặt", glyph_icon("\uE785", g), self.set_locked, True,
+        self.btn_long = tool("Long View", ("glyph", "\uE7F4"), self.toggle_long_view, tip="Màn hình lớn")
+        tool("Dừng hết", ("shape", "stopall"), self.stop_all,
+             tip="Dừng tất cả (Esc). Bấm 2 lần = dừng ngay", color="danger")
+        self.btn_lock = tool("Khóa cài đặt", ("glyph", "\uE785"), self.set_locked, True,
                              "Khóa: không bàn phím, không bấm chuột điều khiển được — nhạc vẫn phát.\nBấm lại nút này để mở khóa.")
+        self.btn_lock.setProperty("danger", True)
         tl.addSpacing(10)
         logo = QToolButton()
         logo.setObjectName("tool")
         logo.setIcon(QIcon(asset("logo_round.png")))
-        logo.setIconSize(QSize(50, 50))
+        logo.setIconSize(QSize(44, 44))
         logo.setToolTip(DISPLAY_NAME)
         logo.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         logo.clicked.connect(self.show_about)
@@ -377,15 +289,15 @@ class MainWindow(QMainWindow):
         # --- thân: các trang + cột phải ---
         self.body_w = QWidget()
         body = QHBoxLayout(self.body_w)
-        body.setContentsMargins(14, 10, 14, 6)
-        body.setSpacing(16)
+        body.setContentsMargins(16, 8, 16, 10)
+        body.setSpacing(18)
         self.stack = QStackedWidget()
         self.strips = []
         for page in range(2):
             w = QWidget()
             grid = QGridLayout(w)
             grid.setContentsMargins(0, 0, 0, 0)
-            grid.setHorizontalSpacing(14)
+            grid.setHorizontalSpacing(12)
             grid.setVerticalSpacing(10)
             for k in range(16):
                 n = page * 16 + k + 1
@@ -404,8 +316,9 @@ class MainWindow(QMainWindow):
         body.addWidget(self.stack, 1)
 
         right = QVBoxLayout()
-        right.setSpacing(3)
-        right.addSpacing(20)
+        right.setContentsMargins(0, 0, 0, 0)
+        right.setSpacing(6)
+        right.addSpacing(22)
         self.btn_go = QPushButton("GO 1")
         self.btn_go.setObjectName("go")
         self.btn_go.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -414,8 +327,13 @@ class MainWindow(QMainWindow):
         self.btn_go.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.btn_go.customContextMenuRequested.connect(self.go_menu)
         right.addWidget(self.btn_go)
+        hint = QLabel("Space · chuột phải\nđể chọn kênh")
+        hint.setObjectName("goHint")
+        hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        right.addWidget(hint)
         right.addStretch(1)
-        lbl = QLabel("Master")
+        lbl = QLabel("MASTER")
+        lbl.setObjectName("sideHead")
         lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         right.addWidget(lbl)
         mf = QFrame()
@@ -423,30 +341,32 @@ class MainWindow(QMainWindow):
         ml = QVBoxLayout(mf)
         mh = QHBoxLayout()
         self.master = Fader()
+        self.master.setToolTip("Master = âm lượng chính của sound card (giống thanh âm lượng Windows).\n"
+                               "Chỉnh ở đây hoặc trên Windows đều được, hai bên tự đồng bộ.")
         self.master.valueChanged.connect(self.on_master)
         mh.addWidget(self.master, 1)
         self.master_meter = VUMeter()
         mh.addWidget(self.master_meter)
         ml.addLayout(mh, 1)
         self.lbl_master = QLabel("100%")
+        self.lbl_master.setObjectName("level")
         self.lbl_master.setAlignment(Qt.AlignmentFlag.AlignCenter)
         ml.addWidget(self.lbl_master)
         right.addWidget(mf, 1)
         rw = QWidget()
         rw.setLayout(right)
-        rw.setFixedWidth(116)
+        rw.setFixedWidth(124)
         body.addWidget(rw)
         root.addWidget(self.body_w, 1)
         self.lock_overlay = LockOverlay(self.body_w)
         self.setCentralWidget(central)
 
         self.lbl_clock = QLabel()
-        self.lbl_clock.setStyleSheet("font-family:Consolas;font-size:9.5pt;padding-right:8px;")
+        self.lbl_clock.setObjectName("clock")
         ver = QLabel(f"v{VERSION}")
-        ver.setStyleSheet("color:#888;padding-right:12px;")
+        ver.setObjectName("version")
         self.statusBar().addPermanentWidget(ver)
         self.statusBar().addPermanentWidget(self.lbl_clock)
-        self.master.setValue(97)
         self.pg_buttons[0].setChecked(True)
 
     def build_menu(self):
@@ -468,6 +388,12 @@ class MainWindow(QMainWindow):
             m.addAction(t, lambda i=i: self.show_page(i), QKeySequence(f"Ctrl+{i + 1}"))
         m.addSeparator()
         m.addAction("Long View", self.toggle_long_view)
+        m.addSeparator()
+        self.theme_actions = {}
+        for key, label in theme.THEME_NAMES.items():
+            a = m.addAction(f"Giao diện {label.lower()}", lambda k=key: self.apply_theme(k))
+            a.setCheckable(True)
+            self.theme_actions[key] = a
         m = mb.addMenu("Tùy chỉnh")
         m.addAction("Tùy chọn...", self.open_settings)
         m.addAction("Bảng phím tắt...", self.open_shortcuts)
@@ -479,16 +405,17 @@ class MainWindow(QMainWindow):
         self.act_lock.toggled.connect(self.btn_lock.setChecked)
         m = mb.addMenu("Trợ giúp")
         m.addAction("Bảng phím tắt...", self.open_shortcuts)
-        m.addAction("Hướng dẫn", self.show_guide)
+        m.addAction("Hướng dẫn sử dụng", self.show_guide, QKeySequence("F1"))
         m.addSeparator()
         m.addAction(f"Giới thiệu {DISPLAY_NAME}", self.show_about)
 
-    FIXED_KEYS = ("Ctrl+Shift+Esc", "Ctrl+Right", "Ctrl+Left", "Ctrl+E", "Ctrl+L")
+    FIXED_KEYS = ("Ctrl+Shift+Esc", "Ctrl+Right", "Ctrl+Left", "Ctrl+E", "Ctrl+L", "F1")
 
     def build_shortcuts(self):
         """Phím cố định (không chỉnh trong bảng phím tắt)."""
         for key, fn in zip(self.FIXED_KEYS, (self.panic, self.playlist.next_track, self.playlist.prev_track,
-                                             self.playlist.cue_selected, self.playlist.prelisten_selected)):
+                                             self.playlist.cue_selected, self.playlist.prelisten_selected,
+                                             self.show_guide)):
             s = QShortcut(QKeySequence(key), self)
             s.activated.connect(fn)
             self._fixed.append(s)
@@ -660,15 +587,15 @@ class MainWindow(QMainWindow):
         """Khóa toàn bộ: không phím, không chuột điều khiển (nhạc vẫn phát). Chỉ mở bằng nút Khóa."""
         self.locked = on
         self.act_lock.setChecked(on)
-        self.btn_lock.setIcon(glyph_icon("\uE72E" if on else "\uE785", "#dc2626" if on else "#3a3a3a"))
-        keep = set(self.pg_buttons) | {self.btn_lock, self.btn_long}
+        self.update_lock_icon()
+        keep = set(self.pg_buttons) | {self.btn_lock, self.btn_long, self.btn_theme}
         for b in self.tool_buttons:
             if b not in keep:
                 b.setEnabled(not on)
         for top in self.menuBar().actions():
             if top.menu():
                 for a in top.menu().actions():
-                    if a is not self.act_lock:
+                    if a is not self.act_lock and a not in self.theme_actions.values():
                         a.setEnabled(not on)
         self.update_shortcut_enabled()
         self.lock_overlay.setVisible(on)
@@ -679,6 +606,41 @@ class MainWindow(QMainWindow):
             s.refresh()
         self.statusBar().showMessage("ĐÃ KHÓA — bàn phím và chuột không điều khiển được. Bấm nút Khóa cài đặt để mở."
                                      if on else "Đã mở khóa", 0 if on else 3000)
+
+    # ---------- giao diện Tối / Sáng ----------
+    def update_lock_icon(self):
+        self.btn_lock.setIcon(glyph_icon("\uE72E" if self.locked else "\uE785",
+                                         "#ffffff" if self.locked else T["text_dim"]))
+
+    def toggle_theme(self):
+        self.apply_theme("light" if theme.is_dark() else "dark")
+
+    def apply_theme(self, name):
+        theme.set_theme(name)
+        app = QApplication.instance()
+        app.setPalette(theme.palette())
+        app.setStyleSheet(theme.build_stylesheet())
+        for b, kind, code, color in self.tool_icons:
+            if b is self.btn_lock:
+                continue
+            if b is self.btn_theme:
+                code = "\uE706" if theme.is_dark() else "\uE708"   # mặt trời / mặt trăng
+            col = T[color]
+            ic = glyph_icon(code, col) if kind == "glyph" else shape_icon(code, col)
+            if b in self.pg_buttons:       # tab trang đang chọn: biểu tượng trắng trên nền xanh
+                ic.addPixmap(glyph_icon(code, "#ffffff").pixmap(64, 64), QIcon.Mode.Normal, QIcon.State.On)
+            b.setIcon(ic)
+        self.btn_theme.setText("Sáng" if theme.is_dark() else "Tối")
+        self.btn_theme.setToolTip("Chuyển sang giao diện " + ("sáng" if theme.is_dark() else "tối"))
+        self.update_lock_icon()
+        for k, a in self.theme_actions.items():
+            a.setChecked(k == theme.current())
+        for s in self.strips:
+            s.retheme()
+        self.playlist.retheme()
+        self.master_meter.update()
+        self.settings.setValue("theme", theme.current())
+        set_dark_titlebar(self)
 
     def stop_others(self, keep=None, stop_playlist=True):
         """Phát đơn: dừng mọi kênh khác (đang phát hoặc tạm dừng)."""
@@ -750,19 +712,46 @@ class MainWindow(QMainWindow):
 
     # ---------- master / thiết bị ----------
     def on_master(self, v):
-        db = percent_to_db(v / 100)
-        self.lbl_master.setText(f"{v}%  " + (f"{db:+.1f} dB" if db is not None else "-∞ dB"))
-        for s in self.strips:
-            s.set_bus(v / 100)
-            s.update_out_tip()
-        self.playlist.set_bus(v / 100)
-        self.mark_dirty()
+        """Fader Master -> âm lượng chính của sound card."""
+        if self._sys_level is not None and round(self._sys_level * 100) != v:
+            self.sysvol.set(v / 100)
+            self._sys_level = v / 100
+        self.update_master_label()
+
+    def update_master_label(self):
+        if not self.sysvol.available():
+            self.lbl_master.setText("Không đọc được\nâm lượng Windows")
+            return
+        self.lbl_master.setText(f"{self.master.value()}%" + ("  · tắt tiếng" if self.sysvol.muted() else ""))
+
+    def sync_master_from_system(self):
+        """Đọc âm lượng Windows; nếu ai đó chỉnh trên Windows thì kéo fader Master theo."""
+        lv = self.sysvol.get()
+        if lv is None:
+            self._sys_level = None
+            self.master.setEnabled(False)
+            self.update_master_label()
+            return
+        self.master.setEnabled(True)
+        if self._sys_level is None or abs(lv - self._sys_level) > 0.004:
+            self._sys_level = lv
+            if not self.master.isSliderDown():
+                self.master.blockSignals(True)
+                self.master.setValue(round(lv * 100))
+                self.master.blockSignals(False)
+        self.update_master_label()
 
     def apply_devices(self):
         for s in self.strips:
             s.apply_device()
         self.playlist.set_device(find_output_device(self.cfg["main_device"]))
         self.pre.set_device(find_output_device(self.cfg["pre_device"]))
+        # Master điều khiển sound card mà các kênh đang phát ra
+        dev = find_output_device(self.cfg["cart_device"])
+        dev_id = bytes(dev.id()).decode("utf-8", "ignore") if not dev.isNull() else ""
+        self.sysvol.set_device(dev_id)
+        self._sys_level = None
+        self.sync_master_from_system()
 
     def prelisten_file(self, path, title):
         if self.pre.is_playing() and self.pre_title == title:
@@ -788,8 +777,9 @@ class MainWindow(QMainWindow):
             self.long_view.close()
             return
         if not self.long_view:
-            self.long_view = LongView(self)
+            self.long_view = LongView(self, DISPLAY_NAME)
         self.long_view.show()
+        set_dark_titlebar(self.long_view)
         self.long_view.raise_()
 
     # ================= VÒNG CẬP NHẬT =================
@@ -797,8 +787,9 @@ class MainWindow(QMainWindow):
         self._ticks += 1
         if self._ticks % 4 == 0:
             self.lbl_clock.setText(QTime.currentTime().toString("HH:mm:ss"))
+            self.sync_master_from_system()
         page = self.stack.currentIndex()
-        # Master = tổng công suất các nguồn đang phát (sau fader kênh và fader Master)
+        # Đồng hồ Master = tổng công suất các nguồn đang phát (sau fader kênh) × âm lượng sound card
         power = [0.0, 0.0]
         for i, s in enumerate(self.strips):
             if (i // 16) == page or s.deck.is_playing() or s.deck.is_paused():
@@ -810,13 +801,12 @@ class MainWindow(QMainWindow):
         pl_pre, pl_post = self.playlist.take_levels()
         self.playlist.tick(pl_pre)
         power = [power[0] + pl_post[0] ** 2, power[1] + pl_post[1] ** 2]
-        self.master_meter.set_levels([min(1.0, power[0] ** 0.5), min(1.0, power[1] ** 0.5)])
+        sys_amp = percent_to_amp(self._sys_level) if self._sys_level is not None else 1.0
+        if self.sysvol.muted():
+            sys_amp = 0.0
+        self.master_meter.set_levels([min(1.0, power[0] ** 0.5 * sys_amp), min(1.0, power[1] ** 0.5 * sys_amp)])
         if self.long_view and self.long_view.isVisible() and self._ticks % 2 == 0:
-            items = [(f"{s.number}. {s.display_name()}", s.remaining_ms(), s.seg_len()) for s in self.strips if s.deck.is_playing() or s.deck.is_paused()]
-            np = self.playlist.now_playing()
-            if np:
-                items.insert(0, ("▶ " + np[0], np[1], np[2]))
-            self.long_view.update_view(items, self.cfg["warn_sec"] * 1000)
+            self.long_view.refresh(self.cfg["warn_sec"] * 1000)
 
     # ================= DỰ ÁN =================
     def mark_dirty(self):
@@ -842,7 +832,6 @@ class MainWindow(QMainWindow):
             chans = d.get("channels", [])
             for i, s in enumerate(self.strips):
                 s.from_dict(chans[i] if i < len(chans) else {})
-            self.master.setValue(int(d.get("master", 97)))
             self.btn_single.setChecked(bool(d.get("single", False)))
             self.go_next = int(d.get("go_next", 1))
             self.playlist.from_dict(d.get("playlist", {}))
@@ -987,17 +976,7 @@ class MainWindow(QMainWindow):
         box.exec()
 
     def show_guide(self):
-        QMessageBox.information(self, "Hướng dẫn", (
-            "• Kéo thả file nhạc từ Explorer vào một kênh, hoặc bấm biểu tượng nốt nhạc / nút lớn của kênh trống.\n"
-            "• Bấm nút lớn (hoặc phím tắt in trên nút) để phát; bấm lại để dừng. Đổi phím ở nút Phím tắt.\n"
-            "• ‖ tạm dừng / tiếp tục · Dừng: dừng (có fade out nếu đặt) · 🔁 lặp · ◢ fade in, ◣ fade out: mỗi lần bấm +0,5 giây, quá 3 giây về tắt.\n"
-            "• Nút ••• (hoặc chuột phải nút lớn) → Cài đặt kênh: tên, màu, ngõ ra, chế độ bấm, fade, đoạn phát (cắt đầu/cuối bằng dạng sóng), phím phát.\n"
-            "• Nháy đúp vào fader để về 80%.\n"
-            "• GO phát lần lượt các kênh có nhạc theo thứ tự; chuột phải GO để chọn kênh tiếp theo.\n"
-            "• Phát đơn: phát kênh mới thì các kênh khác tự fade out.\n"
-            "• Khóa cài đặt: khóa toàn bộ bàn phím và chuột (nhạc vẫn phát) — chỉ mở bằng cách bấm lại nút Khóa.\n"
-            "• Trang Playlist: phát danh sách dài theo thứ tự, crossfade, dừng sau mỗi bài.\n"
-            "• Dự án (.evp) lưu toàn bộ kênh + playlist. Chương trình tự nhớ trạng thái khi tắt."))
+        GuideDialog(self, DISPLAY_NAME, VERSION).exec()
 
     def closeEvent(self, e):
         playing = any(s.deck.is_playing() for s in self.strips) or self.playlist.is_active()
@@ -1025,6 +1004,12 @@ def main():
         with open(sys.argv[3], "w", encoding="utf-8") as fh:
             fh.write(msg)
         return
+    if len(sys.argv) >= 3 and sys.argv[1] == "--sysvol-test":   # kiểm tra đọc âm lượng Windows trong bản exe
+        v = SystemVolume()
+        ok = v.set_device("")
+        with open(sys.argv[2], "w", encoding="utf-8") as fh:
+            fh.write(f"device={ok} volume={v.get()} muted={v.muted()}")
+        return
     app = QApplication(sys.argv)
     app.setOrganizationName(APP_NAME)
     app.setApplicationName(APP_NAME)
@@ -1035,7 +1020,9 @@ def main():
     except Exception:
         pass
     app.setStyle("Fusion")
-    app.setStyleSheet(STYLE)
+    theme.set_theme(QSettings().value("theme", "dark"))
+    app.setPalette(theme.palette())
+    app.setStyleSheet(theme.build_stylesheet())
     app.setFont(QFont("Segoe UI", 9))
     w = MainWindow()
     w.showMaximized()

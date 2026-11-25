@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QFont
 from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QTreeWidget, QTreeWidgetItem
+from theme import T
 
 AUDIO_EXT = {'.mp3', '.wav', '.flac', '.m4a', '.aac', '.ogg', '.oga', '.opus',
              '.wma', '.aif', '.aiff', '.mp2', '.ac3'}
@@ -200,15 +201,15 @@ class PlaylistView(QTreeWidget):
                 continue
             mark, color, bold = "", None, False
             if tid == playing_id:
-                mark, color, bold = ("⏸" if paused else "▶"), "#15803d", True
+                mark, color, bold = ("⏸" if paused else "▶"), T["ok"], True
             elif tid == cued_id:
-                mark, color = "⏭", "#b45309"
+                mark, color = "⏭", T["warn"]
             elif tid == next_id:
                 mark = "›"
             if t.missing:
-                color = "#dc2626"
+                color = T["danger"]
             elif color is None and t.played:
-                color = "#9ca3af"
+                color = T["played"]
             if t.stop_after:
                 mark += "⏹"
             it.setText(0, mark)

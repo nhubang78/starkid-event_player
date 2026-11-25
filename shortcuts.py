@@ -21,18 +21,7 @@ LABELS = {a: l for a, l, _k in ACTIONS}
 # Phím điều hướng: tạm tắt khi đang ở trang Playlist để danh sách vẫn dùng được mũi tên
 NAV_KEYS = {"Up", "Down", "Left", "Right", "Home", "End", "PgUp", "PgDown", "Return", "Enter", "Del"}
 
-DIALOG_STYLE = """
-QDialog { background:#ececec; }
-QLabel#title { font-size:13pt; font-weight:700; }
-QLabel#desc { color:#7a7a7a; }
-QLabel#note { color:#b45309; }
-QPushButton#keyEdit { background:#ffffff; border:1px solid #cfcfcf; border-radius:6px; padding:4px;
-                      font-family:Consolas; font-size:10.5pt; min-height:22px; }
-QPushButton#keyEdit:focus { background:#f3f3f3; border:1px solid #2563eb; }
-QPushButton#save { background:#2563eb; color:white; border:1px solid #1d4ed8; }
-QPushButton#save:hover { background:#1d4ed8; }
-QPushButton#dlgBtn, QPushButton#save { min-width:110px; min-height:28px; border-radius:6px; font-size:10pt; }
-"""
+DIALOG_STYLE = ""   # màu lấy từ stylesheet chung (theme.py)
 
 
 class ShortcutDialog(QDialog):
@@ -71,7 +60,7 @@ class ShortcutDialog(QDialog):
         v.addLayout(grid)
 
         self.note = QLabel("")
-        self.note.setObjectName("note")
+        self.note.setObjectName("warnNote")
         self.note.setWordWrap(True)
         v.addWidget(self.note)
 

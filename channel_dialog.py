@@ -12,30 +12,10 @@ from playlist import AUDIO_FILTER, read_meta
 from waveform import SegmentEditor, fmt_cs, parse_time
 from widgets import KeyCaptureEdit, key_label
 
-# (tên, màu chấm, màu nền nút kênh)
-COLORS = [("Không", "", ""), ("Vàng", "#facc15", "#fff1b8"), ("Đỏ", "#ef4444", "#fecaca"),
-          ("Tím", "#d946ef", "#f5d0fe"), ("Lục lam", "#22b8cf", "#c5f6fa"),
-          ("Lam", "#2563eb", "#c7dbff"), ("Lá", "#22c55e", "#c9f2d6")]
+from theme import CHANNEL_COLORS as COLORS   # (tên, màu chấm, màu nền nút kênh)
 MODES = [("play_stop", "Play / Stop"), ("play_pause", "Play / Pause"), ("retrigger", "Retrigger")]
 
-STYLE = """
-QDialog { background:#ececec; }
-QLabel#title { font-size:12pt; font-weight:700; }
-QLabel#note { color:#555; font-size:8.5pt; }
-QLineEdit, QComboBox { background:white; border:1px solid #cfcfcf; border-radius:5px;
-    padding:4px 8px; min-height:20px; }
-QLineEdit:focus, QDoubleSpinBox:focus { border:1px solid #2563eb; }
-QLineEdit[readOnly="true"] { background:#f5f5f5; color:#555; }
-QLineEdit#time { font-family:Consolas; min-width:130px; }
-QPushButton { background:white; border:1px solid #cfcfcf; border-radius:5px; padding:4px 14px; min-height:22px; }
-QPushButton:hover { background:#f3f4f6; }
-QPushButton#save { background:#2563eb; color:white; border-color:#1d4ed8; min-width:100px; }
-QFrame#seg { background:#dadada; border-radius:6px; }
-QFrame#seg QPushButton { background:transparent; border:none; border-radius:5px; padding:4px 14px; }
-QFrame#seg QPushButton:checked { background:white; }
-QPushButton#keyEdit { font-family:Consolas; min-width:170px; }
-QPushButton#keyEdit:focus { border:1px solid #2563eb; background:#f3f3f3; }
-"""
+STYLE = ""   # màu lấy từ stylesheet chung (theme.py)
 
 
 def dot_icon(color):

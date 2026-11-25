@@ -19,6 +19,10 @@ Viết bằng Python + PySide6 (Qt 6), giải mã âm thanh bằng FFmpeg có s�
 - Kéo thả file từ Explorer vào kênh
 
 **Cột phải**: nút **GO** (phát lần lượt các kênh có nhạc, Space) và **Master** (fader + VU tổng).
+Fader mỗi kênh chỉnh to/nhỏ riêng kênh đó; fader **Master** là âm lượng chính của sound card
+(chính là thanh âm lượng Windows — chỉnh bên nào bên kia tự chạy theo).
+
+**Giao diện Tối / Sáng**: nút Sáng/Tối trên thanh công cụ hoặc menu Hiển thị.
 
 **Thanh công cụ**: Dự án mới / Mở / Lưu (`.evp`), Tùy chọn, Phím tắt, Hướng dẫn,
 **Phát đơn** (phát kênh mới thì kênh khác tự fade out), **Long View** (màn hình lớn đếm ngược),
@@ -38,3 +42,5 @@ Chương trình tự nhớ toàn bộ trạng thái khi tắt và mở lại y n
 | `playlist.py` | Danh sách bài, đọc tag (mutagen), kéo thả |
 | `widgets.py` | Đồng hồ VU, fader, nút cart, biểu tượng |
 | `audio.py` | `Deck`: trình phát có fade, đo mức, chọn thiết bị ra |
+| `sysvolume.py` | Âm lượng chính của sound card (Windows Core Audio) cho fader Master |
+| `theme.py` | Bảng màu + stylesheet giao diện Tối / Sáng |
