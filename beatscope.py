@@ -9,7 +9,7 @@ import threading
 
 import numpy as np
 from PySide6.QtCore import QObject, QPointF, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPolygonF
+from PySide6.QtGui import QColor, QFont, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget)
 
 from theme import T, channel_dot
@@ -103,7 +103,9 @@ def _flux(E):
 
 
 def _movavg(x, n):
-    n = max(1, int(n))
+    n = max(1, min(int(n), x.size))          # bài rất ngắn: cửa sổ không dài hơn dữ liệu
+    if x.size == 0:
+        return x
     return np.convolve(x, np.ones(n) / n, mode="same")
 
 
@@ -434,23 +436,52 @@ class BeatView(QWidget):
             return np.maximum.reduceat(arr.astype(np.float32), edges[:-1])
         return arr[edges[:-1]].astype(np.float32)
 
-    def paintEvent(self, _e):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        H = self.height()
-        p.fillRect(self.rect(), QColor(T["wave_bg"]))
+    def _lanes_bottom(self):
         r = self.wave_rect()
+        return r.bottom() + 6 + sum(1 for k, *_ in LAYERS if self.show[k]) * self.LANE_H
+
+    def _static_key(self):
+        import theme
+        r = self.wave_rect()
+        return (self.vs, self.ve, self.width(), self.height(), tuple(sorted(self.show.items())), id(self.a),
+                theme.current(), self.played.name(), self.devicePixelRatioF(), int(r.width()))
+
+    def _pixmap(self):
+        from PySide6.QtGui import QPixmap
+        dpr = self.devicePixelRatioF()
+        pm = QPixmap(int(self.width() * dpr), int(self.height() * dpr))
+        pm.setDevicePixelRatio(dpr)
+        pm.fill(Qt.GlobalColor.transparent)
+        return pm
+
+    def _wave_lines(self, p, color):
+        """Vẽ sóng (RMS) bằng các nét dọc — nhanh hơn rất nhiều so với đường gồm nhiều hình chữ nhật."""
+        from PySide6.QtCore import QLineF
+        r = self.wave_rect()
+        w = int(r.width())
+        pk = self._cols(self.a["peak"], w)
+        mid, half = r.center().y(), r.height() / 2 - 2
+        lines = [QLineF(r.left() + i + .5, mid - float(pk[i]) * half, r.left() + i + .5, mid + float(pk[i]) * half + 1)
+                 for i in range(w)]
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+        p.setPen(QPen(color, 1))
+        p.drawLines(lines)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+    def _render_static(self):
+        """Phần không đổi theo đầu phát: đoạn, thước ô nhịp, lưới, sóng (màu nhạt), các dải nhạc cụ."""
+        pm = self._pixmap()
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        a = self.a
+        r = self.wave_rect()
+        H = self.height()
+        w = int(r.width())
+        span = self.ve - self.vs
         f = QFont("Segoe UI")
         f.setPixelSize(11)
         f.setBold(True)
         p.setFont(f)
-        if self.a is None or "peak" not in self.a:
-            p.setPen(QColor(T["text_faint"]))
-            p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.message)
-            return
-        a = self.a
-        w = int(r.width())
-        span = self.ve - self.vs
         # đoạn
         if self.show["sections"]:
             for s, e, c in zip(a["sec_s"], a["sec_e"], a["sec_c"]):
@@ -484,8 +515,8 @@ class BeatView(QWidget):
                 if i % every == 0:
                     p.setPen(QColor(T["text_dim"]))
                     p.drawText(QPointF(x + 2, ry + 11), str(i + 1))
-        # lưới phách / ô nhịp
         p.setClipRect(QRectF(r.left(), 0, r.width(), H))
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
         if self.show["beats"] and a["beats"].size > 1:
             bpx = (a["beats"][1] - a["beats"][0]) / span * r.width()
             if bpx >= 4:
@@ -504,60 +535,10 @@ class BeatView(QWidget):
                 if self.vs <= b <= self.ve:
                     x = self.x_of(b)
                     p.drawLine(QPointF(x, r.top()), QPointF(x, H - 4))
-        # sóng
-        pk = self._cols(a["peak"], w)
-        mid, half = r.center().y(), r.height() / 2 - 2
-        xp = self.x_of(self.pos)
-        played, rest = QPainterPath(), QPainterPath()
-        for i in range(w):
-            x = r.left() + i + 0.5
-            h = float(pk[i]) * half
-            (played if x < xp else rest).addRect(QRectF(x - 0.5, mid - h, 1.0, 2 * h + 1))
-        p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(self.played)
-        p.drawPath(played)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         dim = QColor(self.played)
         dim.setAlpha(110)
-        p.setBrush(dim)
-        p.drawPath(rest)
-        # IN / OUT, loop, vùng chọn, cue
-        shade = QColor(T["wave_bg"])
-        shade.setAlpha(170)
-        end = self.end_ms or self.duration
-        xs, xe = self.x_of(self.start_ms), self.x_of(end)
-        if xs > r.left():
-            p.fillRect(QRectF(r.left(), r.top(), xs - r.left(), r.height()), shade)
-        if xe < r.right():
-            p.fillRect(QRectF(xe, r.top(), r.right() - xe, r.height()), shade)
-        for x, col, lab in ((xs, T["ok"], "IN"), (xe, T["danger"], "OUT")):
-            if r.left() - 2 <= x <= r.right() + 2:
-                p.setPen(QPen(QColor(col), 2))
-                p.drawLine(QPointF(x, r.top()), QPointF(x, r.bottom()))
-        la, lb, lon = self.loop
-        if lb > la:
-            c = QColor("#a855f7")
-            c.setAlpha(70 if lon else 30)
-            p.fillRect(QRectF(self.x_of(la), r.top(), self.x_of(lb) - self.x_of(la), r.height()), c)
-        if self.sel:
-            c = QColor(T["accent"])
-            c.setAlpha(60)
-            x0, x1 = self.x_of(min(self.sel)), self.x_of(max(self.sel))
-            p.fillRect(QRectF(x0, r.top(), x1 - x0, H - r.top()), c)
-        for i, cm in enumerate(self.cues):
-            x = self.x_of(cm)
-            p.setPen(QPen(QColor(T["ok"]), 1, Qt.PenStyle.DashLine))
-            p.drawLine(QPointF(x, r.top()), QPointF(x, r.bottom()))
-        # điểm Drop
-        if self.show["drops"]:
-            red = QColor("#ef4444")
-            for d in a["drops"]:
-                if self.vs <= d <= self.ve:
-                    x = self.x_of(d)
-                    p.setPen(QPen(red, 1, Qt.PenStyle.DashLine))
-                    p.drawLine(QPointF(x, r.top()), QPointF(x, r.bottom()))
-                    p.setPen(Qt.PenStyle.NoPen)
-                    p.setBrush(red)
-                    p.drawPolygon(QPolygonF([QPointF(x - 7, r.top()), QPointF(x + 7, r.top()), QPointF(x, r.top() + 11)]))
+        self._wave_lines(p, dim)
         p.setClipping(False)
         # dải nhạc cụ
         y = r.bottom() + 6
@@ -575,8 +556,6 @@ class BeatView(QWidget):
             p.setClipRect(QRectF(r.left(), y, r.width(), self.LANE_H))
             cy, hh = y + self.LANE_H / 2, self.LANE_H / 2 - 4
             if key == "vocal":
-                c2 = QColor(col)
-                c2.setAlpha(200)
                 p.setPen(QPen(c, 1))
                 p.setBrush(QColor(c.red(), c.green(), c.blue(), 60))
                 for s, e in a["vocal"]:
@@ -585,18 +564,16 @@ class BeatView(QWidget):
             else:
                 if key != "clap":
                     env = self._cols(a["env_" + key], w)
-                    path = QPainterPath()
-                    path.moveTo(r.left(), cy)
-                    for i in range(w):
-                        path.lineTo(r.left() + i, cy - float(env[i]) * hh)
-                    for i in range(w - 1, -1, -1):
-                        path.lineTo(r.left() + i, cy + float(env[i]) * hh)
-                    path.closeSubpath()
+                    xs = r.left() + np.arange(w)
+                    top_pts = [QPointF(float(xs[i]), cy - float(env[i]) * hh) for i in range(w)]
+                    bot_pts = [QPointF(float(xs[i]), cy + float(env[i]) * hh) for i in range(w - 1, -1, -1)]
                     c2 = QColor(col)
                     c2.setAlpha(150)
                     p.setPen(Qt.PenStyle.NoPen)
                     p.setBrush(c2)
-                    p.drawPath(path)
+                    p.setRenderHint(QPainter.RenderHint.Antialiasing, False)
+                    p.drawPolygon(QPolygonF(top_pts + bot_pts))
+                    p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
                 ons = a["on_" + key]
                 vis = ons[(ons >= self.vs) & (ons <= self.ve)]
                 spacing = r.width() / max(1, vis.size)
@@ -610,13 +587,90 @@ class BeatView(QWidget):
                                                  QPointF(x - sz, cy)]))
             p.restore()
             y += self.LANE_H
-        # đầu phát
+        p.end()
+        # sóng màu "đã phát" (dán đè phía trái đầu phát)
+        pm2 = self._pixmap()
+        p2 = QPainter(pm2)
+        p2.setClipRect(QRectF(r.left(), 0, r.width(), H))
+        self._wave_lines(p2, self.played)
+        p2.end()
+        return pm, pm2
+
+    def paintEvent(self, _e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        H = self.height()
+        p.fillRect(self.rect(), QColor(T["wave_bg"]))
+        r = self.wave_rect()
+        if self.a is None or "peak" not in self.a:
+            f = QFont("Segoe UI")
+            f.setPixelSize(12)
+            f.setBold(True)
+            p.setFont(f)
+            p.setPen(QColor(T["text_faint"]))
+            p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.message)
+            return
+        key = self._static_key()
+        if key != getattr(self, "_cache_key", None):
+            self._cache = self._render_static()
+            self._cache_key = key
+        static, played = self._cache
+        p.drawPixmap(0, 0, static)
+        a = self.a
+        xp = self.x_of(self.pos)
+        if xp > r.left():                                     # phần đã phát: sóng màu đậm
+            cut = min(r.right(), xp) - r.left()
+            p.save()
+            p.setClipRect(QRectF(r.left(), r.top(), cut, r.height()))
+            p.drawPixmap(0, 0, played)
+            p.restore()
+        p.setClipRect(QRectF(r.left(), 0, r.width(), H))
+        # IN / OUT, loop, vùng chọn, cue, Drop (vẽ mỗi khung — rất nhẹ)
+        shade = QColor(T["wave_bg"])
+        shade.setAlpha(170)
+        end = self.end_ms or self.duration
+        xs, xe = self.x_of(self.start_ms), self.x_of(end)
+        if xs > r.left():
+            p.fillRect(QRectF(r.left(), r.top(), xs - r.left(), r.height()), shade)
+        if xe < r.right():
+            p.fillRect(QRectF(xe, r.top(), r.right() - xe, r.height()), shade)
+        for x, col in ((xs, T["ok"]), (xe, T["danger"])):
+            if r.left() - 2 <= x <= r.right() + 2:
+                p.setPen(QPen(QColor(col), 2))
+                p.drawLine(QPointF(x, r.top()), QPointF(x, r.bottom()))
+        la, lb, lon = self.loop
+        if lb > la:
+            c = QColor("#a855f7")
+            c.setAlpha(70 if lon else 30)
+            p.fillRect(QRectF(self.x_of(la), r.top(), self.x_of(lb) - self.x_of(la), r.height()), c)
+        if self.sel:
+            c = QColor(T["accent"])
+            c.setAlpha(60)
+            x0, x1 = self.x_of(min(self.sel)), self.x_of(max(self.sel))
+            p.fillRect(QRectF(x0, r.top(), x1 - x0, H - r.top()), c)
+        for cm in self.cues:
+            x = self.x_of(cm)
+            p.setPen(QPen(QColor(T["ok"]), 1, Qt.PenStyle.DashLine))
+            p.drawLine(QPointF(x, r.top()), QPointF(x, r.bottom()))
+        if self.show["drops"]:
+            red = QColor("#ef4444")
+            for d in a["drops"]:
+                if self.vs <= d <= self.ve:
+                    x = self.x_of(d)
+                    p.setPen(QPen(red, 1, Qt.PenStyle.DashLine))
+                    p.drawLine(QPointF(x, r.top()), QPointF(x, r.bottom()))
+                    p.setPen(Qt.PenStyle.NoPen)
+                    p.setBrush(red)
+                    p.drawPolygon(QPolygonF([QPointF(x - 7, r.top()), QPointF(x + 7, r.top()), QPointF(x, r.top() + 11)]))
+        p.setClipping(False)
+        y = self._lanes_bottom()
         if r.left() <= xp <= r.right():
             p.setPen(QPen(QColor("#ef4444"), 2))
             p.drawLine(QPointF(xp, self.SEC_H), QPointF(xp, y))
             p.setPen(Qt.PenStyle.NoPen)
             p.setBrush(QColor("#ef4444"))
-            p.drawPolygon(QPolygonF([QPointF(xp - 5, self.SEC_H + self.RULER_H - 6), QPointF(xp + 5, self.SEC_H + self.RULER_H - 6),
+            p.drawPolygon(QPolygonF([QPointF(xp - 5, self.SEC_H + self.RULER_H - 6),
+                                     QPointF(xp + 5, self.SEC_H + self.RULER_H - 6),
                                      QPointF(xp, self.SEC_H + self.RULER_H + 2)]))
         if self.hover is not None:
             p.setPen(QPen(QColor(T["text_dim"]), 1, Qt.PenStyle.DotLine))

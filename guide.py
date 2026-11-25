@@ -45,7 +45,7 @@ Trang Âm thanh dùng để đo tần số, chỉnh micro và chống hú.</li>
 <li><b>Dự án mới, Mở, Lưu</b>: quản lý file dự án <code>.evp</code>.</li>
 <li><b>Tùy chọn, Phím tắt, Hướng dẫn</b>: cài đặt chung, bảng phím tắt và trang này ({K('F1')}).</li>
 <li><b>Sáng / Tối</b>: đổi giao diện.</li>
-<li><b>Phát đơn</b>: khi bật, phát một kênh thì các kênh khác tự nhỏ dần rồi dừng.</li>
+<li>Thanh bên dưới: <b>Chồng / Cắt / Mượt</b> khi phát kênh mới và <b>🎙 MC NÓI</b> (tự giảm nhạc khi MC nói).</li>
 <li><b>Long View</b>: màn hình lớn cho người điều khiển.</li>
 <li><b>Dừng hết</b>: dừng mọi nguồn đang phát.</li>
 <li><b>Khóa cài đặt</b>: khóa bàn phím và chuột để tránh bấm nhầm khi diễn.</li>
@@ -173,13 +173,33 @@ Cần dài hơn (tới 60 giây) thì đặt trong <i>Cài đặt kênh</i>.</li
 {tip("Sắp xếp các bài vào kênh theo đúng trình tự chương trình (kênh 1, 2, 3...). Khi diễn chỉ cần "
      "nhìn Long View và bấm Space.", "pro")}
 """),
-    ("Phát đơn", "Chỉ một nguồn phát tại một thời điểm", f"""
-<p>Khi bật <b>Phát đơn</b>, phát một kênh (hoặc Playlist) thì mọi nguồn khác đang phát sẽ tự fade out rồi dừng.
-Hợp với chương trình chuyển bài liên tục, không muốn hai bài chồng lên nhau.</p>
+    ("Chuyển kênh và MC nói", "Chồng / Cắt / Mượt · tự giảm nhạc khi MC nói", f"""
+<p>Thanh ngay dưới thanh công cụ có hai nhóm điều khiển dùng nhiều nhất khi diễn.</p>
+<h3>Khi phát kênh mới: Chồng / Cắt / Mượt</h3>
+<table cellspacing='0' cellpadding='7' width='100%'>
+<tr><th>Chế độ</th><th>Khi phát một kênh (hoặc Playlist) mới</th></tr>
+<tr><td><b>Chồng</b></td><td>Bài đang phát vẫn chạy, bài mới phát chồng lên. Dùng khi nhạc nền chạy liên tục và
+thêm tiếng vỗ tay, hiệu ứng lên trên.</td></tr>
+<tr><td><b>Cắt</b></td><td>Bài đang phát tắt ngay lập tức, bài mới vào luôn.</td></tr>
+<tr><td><b>Mượt</b></td><td>Crossfade: bài cũ nhỏ dần và bài mới to dần <b>cùng lúc</b>, trong <b>số giây</b> ở ô bên cạnh,
+theo đường cong công suất đều (như bàn DJ) nên tổng âm lượng không bị hụt ở giữa. Nếu kênh mới có fade-in riêng
+dài hơn thì dùng fade-in đó. Áp dụng cả khi Playlist bắt đầu lúc đang có kênh phát.</td></tr>
+</table>
+<p>Chế độ và số giây được lưu cùng dự án. Dự án cũ bật "Phát đơn" sẽ tự mở ở chế độ <b>Mượt</b>.</p>
+<h3>MC NÓI — tự giảm nhạc</h3>
+<p>Bật nút <b>🎙 MC NÓI</b>: phần mềm nghe micro MC; khi có tiếng nói vượt ngưỡng, nhạc (các kênh + Playlist) tự giảm
+xuống còn <b>X %</b> âm lượng (ô <i>nhạc còn</i>, mặc định 15%, tính theo % như fader); MC ngừng nói một lúc thì nhạc lên lại từ từ. Nhãn bên cạnh cho biết trạng thái:
+<span style='color:{T["ok"]}'><b>ĐANG NGHE</b></span> /
+<span style='color:{T["warn"]}'><b>ĐANG GIẢM CÒN 15%</b></span>.</p>
 <ul>
-<li>Thời gian fade khi chuyển chỉnh ở <i>Tùy chọn &rarr; Phát đơn — fade kênh cũ</i> (0 = dừng ngay).</li>
-<li>Tắt Phát đơn để phát chồng: ví dụ nhạc nền chạy liên tục, thêm tiếng vỗ tay hay hiệu ứng lên trên.</li>
+<li><b>Nối dây:</b> máy tính phải nghe được tiếng MC &mdash; micro cắm vào máy tính, hoặc ngõ <b>AUX / REC</b> của mixer
+(có tiếng micro MC) cắm vào cổng line-in.</li>
+<li>Bấm <b>⋮</b> để chọn micro, <b>ngưỡng nói</b>, % nhạc còn lại, thời gian giảm / giữ / lên lại. Cho MC nói thử và chỉnh ngưỡng
+sao cho thanh mức chuyển <span style='color:{T["warn"]}'>vàng</span> khi nói, <span style='color:{T["ok"]}'>xanh</span>
+khi im lặng (vạch trắng là ngưỡng).</li>
+<li>Tai nghe nghe thử và tone thử loa không bị giảm.</li>
 </ul>
+{tip("Đặt ngưỡng cao hơn tiếng nhạc lọt vào micro, nếu không nhạc sẽ tự giảm cả khi MC không nói.", "warn")}
 """),
     ("Playlist", "Phát danh sách dài, crossfade", f"""
 <p>Trang Playlist dùng cho nhạc nền, nhạc đón khách, giờ nghỉ: phát danh sách dài theo thứ tự.</p>
@@ -360,7 +380,7 @@ Khi đang ở trang Playlist, các phím mũi tên / Enter / Delete dành cho da
     ("Dự án và mang sang máy khác", "Lưu, mở, tự lưu", f"""
 <ul>
 <li>Dự án <code>.evp</code> lưu toàn bộ: 32 kênh (file, tên, màu, âm lượng, fade, đoạn phát, phím),
-các danh sách Playlist, chế độ Phát đơn và vị trí GO.</li>
+các danh sách Playlist, chế độ chuyển kênh (Chồng / Cắt / Mượt) và vị trí GO.</li>
 <li>Mặc định lưu trong <i>Documents\\EventPlayer</i>. Tiêu đề cửa sổ có dấu <b>*</b> khi còn thay đổi chưa lưu.</li>
 <li>Chương trình <b>tự nhớ</b> trạng thái khi tắt và mở lại y như cũ, kể cả khi chưa lưu dự án.</li>
 </ul>
@@ -379,7 +399,6 @@ các danh sách Playlist, chế độ Phát đơn và vị trí GO.</li>
 <tr><td><b>Thiết bị ra của các kênh</b></td><td>Sound card cho 32 kênh. Fader Master điều khiển âm lượng sound card này.</td></tr>
 <tr><td><b>Thiết bị ra của Playlist</b></td><td>Có thể khác sound card của kênh (ví dụ nhạc nền ra loa sảnh).</td></tr>
 <tr><td><b>Tai nghe nghe thử</b></td><td>Thiết bị để nghe thử bài trước khi phát ra loa.</td></tr>
-<tr><td><b>Phát đơn — fade kênh cũ</b></td><td>Thời gian nhỏ dần của kênh cũ khi Phát đơn đang bật.</td></tr>
 <tr><td><b>Playlist — fade in / fade out</b></td><td>Fade đầu bài và fade khi bấm dừng Playlist.</td></tr>
 <tr><td><b>Fade khi tạm dừng</b></td><td>Fade ngắn khi tạm dừng / phát tiếp, tránh tiếng "bụp".</td></tr>
 <tr><td><b>Cảnh báo sắp hết bài</b></td><td>Số giây cuối bài mà thời gian còn lại nhấp nháy đỏ.</td></tr>

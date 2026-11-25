@@ -295,6 +295,13 @@ QPushButton#deGrid {{ padding:2px 10px; min-height:16px; border-radius:6px; font
     background:{wave_bg}; color:{warn}; border:1px solid {warn}; }}
 QPushButton#deGrid:checked {{ background:{warn}; color:#1a1202; }}
 QWidget#beatScope {{ background:{bg}; }}
+QWidget#modeBar {{ background:{toolbar}; border-bottom:1px solid {border}; }}
+QWidget#modeBar QLabel {{ background:transparent; }}
+QPushButton#mcBtn {{ padding:5px 14px; border-radius:8px; font-weight:700; }}
+QPushButton#mcBtn:checked {{ background:{ok}; border-color:{ok}; color:white; }}
+QLabel#mcState {{ font-size:8pt; font-weight:700; color:{text_faint}; letter-spacing:1px; }}
+QLabel#mcState[state="on"] {{ color:{ok}; }}
+QLabel#mcState[state="duck"] {{ color:{warn}; }}
 QFrame#strip[selected="true"] {{ border:2px solid {accent}; }}
 
 /* ---------- âm thanh (đo, chống hú) ---------- */

@@ -373,11 +373,11 @@ class ChannelStrip(QWidget):
         elif self.deck.is_paused():
             self.deck.play(self.host.cfg["pause_fade_ms"])
 
-    def stop(self, fade_ms=None):
+    def stop(self, fade_ms=None, curve="lin"):
         """Dừng; mặc định dùng fade out của kênh."""
         if fade_ms is None:
             fade_ms = int(self.fade_out_s * 1000)
-        self.deck.stop(fade_ms if self.deck.is_playing() else 0)
+        self.deck.stop(fade_ms if self.deck.is_playing() else 0, curve)
 
     def stop_now(self):
         self.deck.stop()

@@ -8,8 +8,8 @@ from PySide6.QtCore import QRectF
 from PySide6.QtGui import QColor, QFont, QIcon, QKeySequence, QPainter, QShortcut
 from PySide6.QtWidgets import (QApplication, QButtonGroup, QComboBox, QDialog, QDialogButtonBox,
                                QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout,
-                               QLabel, QMainWindow, QMenu, QMessageBox, QPushButton, QScrollArea, QSizePolicy,
-                               QSpinBox, QStackedWidget, QToolButton, QVBoxLayout,
+                               QDoubleSpinBox, QLabel, QMainWindow, QMenu, QMessageBox, QPushButton, QScrollArea,
+                               QSizePolicy, QSpinBox, QStackedWidget, QToolButton, QVBoxLayout,
                                QWidget)
 from PySide6.QtMultimedia import QMediaDevices
 
@@ -22,6 +22,7 @@ from guide import GuideDialog
 from longview import LongView
 from soundcheck import SoundCheckPage
 from deck_editor import DeckEditor
+from ducking import Ducker, DuckSettingsDialog, MicLevel
 from shortcuts import DEFAULT_KEYS, NAV_KEYS, ShortcutDialog
 from shortcuts import LABELS as SHORTCUT_LABELS
 from widgets import Fader, VUMeter, glyph_icon, key_label, shape_icon
@@ -88,7 +89,6 @@ class SettingsDialog(QDialog):
         dev("cart_device", "Thiết bị ra của các kênh:")
         dev("main_device", "Thiết bị ra của Playlist:")
         dev("pre_device", "Tai nghe nghe thử:")
-        spin("single_fade_ms", "Phát đơn — fade kênh cũ (0 = dừng ngay):", 10000, 100, " ms")
         spin("fade_in_ms", "Playlist — fade in đầu bài:", 10000, 100, " ms")
         spin("fade_out_ms", "Playlist — fade out khi dừng:", 20000, 250, " ms")
         spin("pause_fade_ms", "Fade khi tạm dừng/tiếp tục:", 3000, 50, " ms")
@@ -180,6 +180,8 @@ class MainWindow(QMainWindow):
             pass
         self.locked = False
         self.single = False
+        self.xmode = "overlap"         # chuyển kênh: overlap (Chồng) | cut (Cắt) | smooth (Mượt)
+        self.xfade_s = 4.0
         self.project_path = ""
         self.dirty = False
         self._loading = False
@@ -283,10 +285,6 @@ class MainWindow(QMainWindow):
         tool("Hướng dẫn", ("glyph", "\uE897"), self.show_guide, tip="Hướng dẫn sử dụng (F1)")
         self.btn_theme = tool("Giao diện", ("glyph", "\uE708"), self.toggle_theme,
                               tip="Đổi giao diện Tối / Sáng")
-        sep()
-        self.btn_single = tool("Phát đơn", ("shape", "single"), self.set_single, True,
-                               "Phát đơn: khi phát một kênh, các kênh khác tự fade out")
-        self.btn_single.setProperty("accent", True)
         tl.addStretch(2)
         self.btn_long = tool("Long View", ("glyph", "\uE7F4"), self.toggle_long_view, tip="Màn hình lớn")
         tool("Dừng hết", ("shape", "stopall"), self.stop_all,
@@ -306,6 +304,7 @@ class MainWindow(QMainWindow):
         self.logo = logo
         self._compact = None
         root.addWidget(tb)
+        root.addWidget(self.build_mode_bar())
 
         self.lbl_path = QLabel()
         self.lbl_path.setObjectName("pathBar")
@@ -415,6 +414,142 @@ class MainWindow(QMainWindow):
         self.statusBar().addPermanentWidget(self.lbl_clock)
         self.pg_buttons[0].setChecked(True)
 
+    def build_mode_bar(self):
+        """Thanh: chế độ chuyển kênh (Chồng / Cắt / Mượt + số giây) và MC NÓI (tự giảm nhạc)."""
+        bar = QWidget()
+        bar.setObjectName("modeBar")
+        h = QHBoxLayout(bar)
+        h.setContentsMargins(12, 6, 12, 6)
+        h.setSpacing(8)
+        lb = QLabel("KHI PHÁT KÊNH MỚI")
+        lb.setObjectName("deCap")
+        h.addWidget(lb)
+        seg = QFrame()
+        seg.setObjectName("seg")
+        sl = QHBoxLayout(seg)
+        sl.setContentsMargins(3, 3, 3, 3)
+        sl.setSpacing(2)
+        self.xmode_group = QButtonGroup(self)
+        self.xmode_btns = {}
+        for key, text, tip in (("overlap", "Chồng", "Chồng: bài đang phát vẫn chạy, bài mới phát chồng lên"),
+                               ("cut", "Cắt", "Cắt: bài đang phát tắt ngay khi phát bài mới"),
+                               ("smooth", "Mượt", "Mượt: bài cũ nhỏ dần, bài mới to dần trong số giây bên cạnh")):
+            b = QPushButton(text)
+            b.setCheckable(True)
+            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            b.setToolTip(tip)
+            self.xmode_group.addButton(b)
+            self.xmode_btns[key] = b
+            b.clicked.connect(lambda _c=False, k=key: self.set_xmode(k))
+            sl.addWidget(b)
+        h.addWidget(seg)
+        self.sp_xfade = QDoubleSpinBox()
+        self.sp_xfade.setRange(0.5, 30)
+        self.sp_xfade.setSingleStep(0.5)
+        self.sp_xfade.setDecimals(1)
+        self.sp_xfade.setValue(self.xfade_s)
+        self.sp_xfade.setSuffix(" giây")
+        self.sp_xfade.setFixedWidth(100)
+        self.sp_xfade.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+        self.sp_xfade.setToolTip("Thời gian chuyển mượt (bài cũ nhỏ dần / bài mới to dần)")
+        self.sp_xfade.valueChanged.connect(self.set_xfade)
+        h.addWidget(self.sp_xfade)
+        h.addSpacing(14)
+        sep = QFrame()
+        sep.setObjectName("tbSep")
+        sep.setFixedHeight(24)
+        h.addWidget(sep)
+        h.addSpacing(14)
+        self.ducker = Ducker(self)
+        self.btn_mc = QPushButton("🎙  MC NÓI")
+        self.btn_mc.setObjectName("mcBtn")
+        self.btn_mc.setCheckable(True)
+        self.btn_mc.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.btn_mc.setToolTip("Bật: khi MC nói vào micro, nhạc (các kênh + Playlist) tự giảm; MC ngừng nói thì nhạc "
+                               "lên lại.\nBấm ⋮ để chọn micro, ngưỡng, mức giảm.")
+        self.btn_mc.toggled.connect(self.set_mc)
+        h.addWidget(self.btn_mc)
+        self.mc_level = MicLevel(self.ducker, 70, 8)
+        h.addWidget(self.mc_level)
+        lb2 = QLabel("nhạc còn")
+        lb2.setObjectName("fieldLabel")
+        h.addWidget(lb2)
+        self.sp_duck = QSpinBox()
+        self.sp_duck.setRange(0, 95)
+        self.sp_duck.setSingleStep(5)
+        self.sp_duck.setSuffix(" %")
+        self.sp_duck.setValue(int(self.ducker.cfg["pct"]))
+        self.sp_duck.setFixedWidth(78)
+        self.sp_duck.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+        self.sp_duck.setToolTip("Âm lượng nhạc khi MC nói, theo % như fader (100% = không giảm, 0% = tắt hẳn)")
+        self.sp_duck.valueChanged.connect(self.ducker.set_pct)
+        h.addWidget(self.sp_duck)
+        self.lbl_mc = QLabel("TẮT")
+        self.lbl_mc.setObjectName("mcState")
+        self.lbl_mc.setMinimumWidth(110)
+        h.addWidget(self.lbl_mc)
+        b = QPushButton("⋮")
+        b.setObjectName("deBtn")
+        b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        b.setToolTip("Cài đặt MC nói: micro, ngưỡng, mức giảm, thời gian")
+        b.clicked.connect(self.open_duck_settings)
+        h.addWidget(b)
+        h.addStretch(1)
+        self.ducker.changed.connect(self.update_mc_state)
+        self.mode_bar = bar
+        self.set_xmode(self.xmode, mark=False)
+        return bar
+
+    def set_xmode(self, mode, mark=True):
+        self.xmode = mode if mode in ("overlap", "cut", "smooth") else "overlap"
+        self.single = self.xmode != "overlap"
+        b = self.xmode_btns[self.xmode]
+        if not b.isChecked():
+            b.setChecked(True)
+        self.sp_xfade.setEnabled(self.xmode == "smooth")
+        for k, a in getattr(self, "xmode_actions", {}).items():
+            a.setChecked(k == self.xmode)
+        if mark:
+            self.mark_dirty()
+
+    def set_xfade(self, v):
+        self.xfade_s = float(v)
+        self.mark_dirty()
+
+    def xfade_ms(self):
+        return int(self.xfade_s * 1000) if self.xmode == "smooth" else 0
+
+    def set_mc(self, on):
+        if not self.ducker.set_enabled(on):
+            self.btn_mc.blockSignals(True)
+            self.btn_mc.setChecked(False)
+            self.btn_mc.blockSignals(False)
+            QMessageBox.warning(self, "MC nói", "Không mở được micro.\nKiểm tra micro đã cắm, đúng thiết bị trong ⋮, "
+                                "và Windows cho phép ứng dụng dùng micro (Cài đặt → Quyền riêng tư → Micro).")
+
+    def update_mc_state(self):
+        d = self.ducker
+        if not d.enabled:
+            text, st = ("ĐANG TRẢ NHẠC" if d.ducking else "TẮT"), "off"
+        elif d.ducking:
+            text, st = f"ĐANG GIẢM CÒN {d.cfg['pct']}%", "duck"
+        else:
+            text, st = "ĐANG NGHE", "on"
+        if self.lbl_mc.text() != text:
+            self.lbl_mc.setText(text)
+        if self.lbl_mc.property("state") != st:
+            self.lbl_mc.setProperty("state", st)
+            self.lbl_mc.style().unpolish(self.lbl_mc)
+            self.lbl_mc.style().polish(self.lbl_mc)
+        self.mc_level.update()
+
+    def open_duck_settings(self):
+        DuckSettingsDialog(self, self.ducker).exec()
+        self.sp_duck.blockSignals(True)
+        self.sp_duck.setValue(int(self.ducker.cfg["pct"]))
+        self.sp_duck.blockSignals(False)
+        self.update_mc_state()
+
     def build_menu(self):
         mb = self.menuBar()
         m = mb.addMenu("Tệp")
@@ -443,9 +578,16 @@ class MainWindow(QMainWindow):
         m = mb.addMenu("Tùy chỉnh")
         m.addAction("Tùy chọn...", self.open_settings)
         m.addAction("Bảng phím tắt...", self.open_shortcuts)
-        self.act_single = m.addAction("Phát đơn")
-        self.act_single.setCheckable(True)
-        self.act_single.toggled.connect(self.btn_single.setChecked)
+        sub = m.addMenu("Khi phát kênh mới")
+        self.xmode_actions = {}
+        for key, text in (("overlap", "Chồng (phát chồng)"), ("cut", "Cắt (tắt bài cũ ngay)"),
+                          ("smooth", "Mượt (bài cũ nhỏ dần)")):
+            a = sub.addAction(text, lambda k=key: self.set_xmode(k))
+            a.setCheckable(True)
+            a.setChecked(key == self.xmode)
+            self.xmode_actions[key] = a
+        self.act_mc = m.addAction("MC nói — tự giảm nhạc", lambda: self.btn_mc.toggle())
+        m.addAction("Cài đặt MC nói...", self.open_duck_settings)
         self.act_lock = m.addAction("Khóa cài đặt")
         self.act_lock.setCheckable(True)
         self.act_lock.toggled.connect(self.btn_lock.setChecked)
@@ -619,8 +761,8 @@ class MainWindow(QMainWindow):
         self.statusBar().clearMessage()
 
     def set_single(self, on):
-        self.single = on
-        self.act_single.setChecked(on)
+        """(Tương thích dự án cũ) Phát đơn = chế độ Mượt."""
+        self.set_xmode("smooth" if on else "overlap", mark=False)
         if on and not self._loading:
             # bật Phát đơn khi đang có nhiều nguồn phát: chỉ giữ nguồn phát sau cùng
             keep = self.last_started
@@ -648,6 +790,7 @@ class MainWindow(QMainWindow):
                 for a in top.menu().actions():
                     if a is not self.act_lock and a not in self.theme_actions.values():
                         a.setEnabled(not on)
+        self.mode_bar.setEnabled(not on)
         self.update_shortcut_enabled()
         self.lock_overlay.setVisible(on)
         if on:
@@ -704,26 +847,50 @@ class MainWindow(QMainWindow):
         if text:
             self.statusBar().showMessage(text + "  — xem trang Âm thanh để biết cần cắt EQ ở đâu", 4000)
 
-    def stop_others(self, keep=None, stop_playlist=True):
-        """Phát đơn: dừng mọi kênh khác (đang phát hoặc tạm dừng)."""
-        fade = self.cfg["single_fade_ms"]
+    def stop_others(self, keep=None, stop_playlist=True, fade=None):
+        """Chuyển kênh (Cắt / Mượt): dừng mọi kênh khác (đang phát hoặc tạm dừng)."""
+        if fade is None:
+            fade = self.xfade_ms()
+        curve = "out" if self.xmode == "smooth" else "lin"     # Mượt: bài cũ ra theo đường cong crossfade
         for s in self.strips:
             if s is not keep and (s.deck.is_playing() or s.deck.is_paused()):
-                s.stop(fade if s.deck.is_playing() else 0)
+                s.stop(fade if s.deck.is_playing() else 0, curve)
         if stop_playlist and (self.playlist.is_active() or self.playlist.deck.is_paused()):
             for d in self.playlist.decks:
-                d.stop(fade if d.is_playing() else 0)
+                d.stop(fade if d.is_playing() else 0, curve)
+
+    def others_playing(self, keep=None, include_playlist=True):
+        busy = any(s is not keep and s.deck.is_playing() for s in self.strips)
+        return busy or (include_playlist and self.playlist.is_active())
 
     def on_strip_started(self, strip):
         self.last_started = strip
         self.deck_editor.set_strip(strip)
-        if self.single:
-            self.stop_others(keep=strip)
+        if self.xmode == "overlap":
+            return
+        crossing = self.others_playing(keep=strip)
+        self.stop_others(keep=strip)
+        # Mượt: bài cũ nhỏ dần + bài mới to dần CÙNG LÚC, cùng số giây (lấy fade-in riêng của kênh nếu dài hơn)
+        if self.xmode == "smooth" and crossing:
+            self.crossfade_in(strip.deck, max(self.xfade_ms(), int(strip.fade_in_s * 1000)))
+
+    def crossfade_in(self, d, ms):
+        if d._pending:                       # file chưa nạp xong (có điểm IN): to dần sau khi tua tới IN
+            d._pending = (d._pending[0], ms)
+            d._pending_curve = "in"
+        else:
+            d.cancel_fade()
+            d.gain = 0.0
+            d._apply()
+            d.fade_to(1.0, ms, curve="in")
 
     def on_playlist_started(self):
         self.last_started = self.playlist
-        if self.single:
+        if self.xmode != "overlap":
+            crossing = self.others_playing(include_playlist=False)
             self.stop_others(stop_playlist=False)
+            if self.xmode == "smooth" and crossing:          # Playlist vào mượt khi kênh khác đang phát
+                self.crossfade_in(self.playlist.deck, max(self.xfade_ms(), self.cfg.get("fade_in_ms", 0)))
 
     # ---------- GO ----------
     def loaded_numbers(self):
@@ -889,7 +1056,7 @@ class MainWindow(QMainWindow):
 
     def project_data(self):
         return {"app": APP_NAME, "version": 1, "channels": [s.to_dict() for s in self.strips],
-                "master": self.master.value(), "single": self.single, "go_next": self.go_next,
+                "master": self.master.value(), "single": self.single, "xmode": self.xmode, "xfade_s": self.xfade_s, "go_next": self.go_next,
                 "playlist": self.playlist.to_dict()}
 
     def apply_project(self, d):
@@ -898,7 +1065,14 @@ class MainWindow(QMainWindow):
             chans = d.get("channels", [])
             for i, s in enumerate(self.strips):
                 s.from_dict(chans[i] if i < len(chans) else {})
-            self.btn_single.setChecked(bool(d.get("single", False)))
+            if "xmode" in d:
+                self.set_xmode(d.get("xmode", "overlap"), mark=False)
+            else:                                           # dự án cũ: Phát đơn bật -> Mượt
+                self.set_xmode("smooth" if d.get("single") else "overlap", mark=False)
+            self.sp_xfade.blockSignals(True)
+            self.sp_xfade.setValue(float(d.get("xfade_s", max(0.5, self.cfg.get("single_fade_ms", 0) / 1000) or 4.0)))
+            self.sp_xfade.blockSignals(False)
+            self.xfade_s = self.sp_xfade.value()
             self.go_next = int(d.get("go_next", 1))
             self.playlist.from_dict(d.get("playlist", {}))
         finally:
@@ -1040,7 +1214,7 @@ class MainWindow(QMainWindow):
         box.setWindowTitle(f"Giới thiệu {DISPLAY_NAME}")
         box.setIconPixmap(QIcon(asset("logo_round.png")).pixmap(96, 96))
         box.setText(f"<b style='font-size:13pt'>{DISPLAY_NAME}</b><br>Phiên bản {VERSION}<br><br>"
-                    "Phần mềm phát nhạc sự kiện: 32 kênh, Playlist, GO, Phát đơn, Long View.")
+                    "Phần mềm phát nhạc sự kiện: 32 kênh, Playlist, GO, Chồng / Cắt / Mượt, MC nói, Soi nhịp, Long View.")
         box.exec()
 
     def show_guide(self):
@@ -1076,6 +1250,7 @@ class MainWindow(QMainWindow):
             return
         self.write_autosave()
         self.soundcheck.shutdown()
+        self.ducker.shutdown()
         self.settings.setValue("geometry", self.saveGeometry())
         if self.long_view:
             self.long_view.close()

@@ -22,6 +22,9 @@ Viết bằng Python + PySide6 (Qt 6), giải mã âm thanh bằng FFmpeg có s�
 Fader mỗi kênh chỉnh to/nhỏ riêng kênh đó; fader **Master** là âm lượng chính của sound card
 (chính là thanh âm lượng Windows — chỉnh bên nào bên kia tự chạy theo).
 
+**Khi phát kênh mới**: Chồng (phát chồng) / Cắt (tắt bài cũ ngay) / Mượt (crossfade theo số giây).
+**MC NÓI**: nghe micro MC, khi MC nói thì nhạc tự giảm còn X % (mặc định 15%), ngừng nói thì nhạc lên lại.
+
 **Giao diện Tối / Sáng**: nút Sáng/Tối trên thanh công cụ hoặc menu Hiển thị.
 
 **Bảng chỉnh bài** (trên lưới kênh): dạng sóng của kênh đang chọn (zoom, tua, chọn đoạn, 1/2 sóng),
@@ -35,7 +38,7 @@ Nút **Soi nhịp** mở cửa sổ phân tích: Kick / Snare / Clap / Hi-hat / 
 - đo phòng bằng pink noise (gợi ý EQ), phát tone / quét tần số / noise để thử loa.
 
 **Thanh công cụ**: Dự án mới / Mở / Lưu (`.evp`), Tùy chọn, Phím tắt, Hướng dẫn,
-**Phát đơn** (phát kênh mới thì kênh khác tự fade out), **Long View** (màn hình lớn đếm ngược),
+**Long View** (màn hình lớn đếm ngược),
 **Dừng hết** (Esc; bấm 2 lần = dừng ngay), **Khóa cài đặt** (chống đổi nhầm khi đang diễn).
 
 **Trang Playlist**: nhiều danh sách dạng tab, 4 chế độ (dừng sau mỗi bài / liên tục / lặp bài /
@@ -56,5 +59,6 @@ Chương trình tự nhớ toàn bộ trạng thái khi tắt và mở lại y n
 | `theme.py` | Bảng màu + stylesheet giao diện Tối / Sáng |
 | `deck_editor.py` | Bảng chỉnh bài: dạng sóng, BPM, CUE, IN / OUT, LOOP, nghe trước |
 | `beatscope.py` | Soi nhịp: phân tích nhạc cụ / phách / ô nhịp / đoạn / Drop + cửa sổ hiển thị |
+| `ducking.py` | MC nói: nghe micro, tự giảm nhạc (ducking) + cài đặt |
 | `soundcheck.py` | Trang Âm thanh: RTA, mức micro, phát hiện hú, ring-out, đo phòng, tone |
 | `guide.py` / `longview.py` | Cửa sổ Hướng dẫn / màn hình Long View |

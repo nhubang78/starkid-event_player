@@ -1,4 +1,6 @@
 """Bộ phát âm thanh (Deck) có hỗ trợ fade in/out, ducking và chọn thiết bị ra."""
+import math
+
 from PySide6.QtCore import QObject, QTimer, QUrl, Signal, QElapsedTimer
 from PySide6.QtMultimedia import (QAudioBufferOutput, QAudioFormat, QAudioOutput, QMediaDevices,
                                   QMediaPlayer)
@@ -160,9 +162,10 @@ class Deck(QObject):
             return
         start_ms, fade_ms = self._pending
         self._pending = None
+        curve, self._pending_curve = getattr(self, "_pending_curve", "lin"), "lin"
         self.player.setPosition(start_ms)
         if fade_ms > 0:
-            self.fade_to(1.0, fade_ms)
+            self.fade_to(1.0, fade_ms, curve=curve)
         else:
             self.gain = 1.0
             self._apply()
@@ -174,9 +177,9 @@ class Deck(QObject):
             self.cancel_fade()
             self.player.pause()
 
-    def stop(self, fade_ms: int = 0):
+    def stop(self, fade_ms: int = 0, curve: str = "lin"):
         if fade_ms > 0 and self.is_playing():
-            self.fade_to(0.0, fade_ms, self._hard_stop)
+            self.fade_to(0.0, fade_ms, self._hard_stop, curve)
         else:
             self._hard_stop()
 
@@ -188,8 +191,10 @@ class Deck(QObject):
         self._apply()
 
     # ---------- fade ----------
-    def fade_to(self, target: float, ms: int, then=None):
-        self._fade = (self.gain, target, max(1, ms), then)
+    def fade_to(self, target: float, ms: int, then=None, curve: str = "lin"):
+        """curve: "lin" = đều; "in" / "out" = đường cong công suất đều (crossfade kiểu bàn DJ:
+        bài vào lên nhanh lúc đầu, bài ra giữ lâu rồi mới xuống -> tổng âm lượng không hụt ở giữa)."""
+        self._fade = (self.gain, target, max(1, ms), then, curve)
         self._clock.start()
         self._timer.start()
 
@@ -204,9 +209,16 @@ class Deck(QObject):
         if not self._fade:
             self._timer.stop()
             return
-        g0, g1, ms, then = self._fade
+        g0, g1, ms, then, curve = self._fade
         t = min(1.0, self._clock.elapsed() / ms)
-        self.gain = g0 + (g1 - g0) * t
+        # công suất đều theo BIÊN ĐỘ thật: biên độ = gain^TAPER nên gain = (sin|cos)^(1/TAPER)
+        if curve == "in":
+            k = math.sin(t * math.pi / 2) ** (1 / TAPER)
+        elif curve == "out":
+            k = 1 - math.cos(t * math.pi / 2) ** (1 / TAPER)
+        else:
+            k = t
+        self.gain = g0 + (g1 - g0) * k
         self._apply()
         if t >= 1.0:
             self._fade = None
