@@ -40,7 +40,8 @@ Bật <b>Khóa cài đặt</b> để không ai bấm nhầm.</li>
     ("Màn hình chính", "Các vùng trên cửa sổ", f"""
 <h3>Thanh công cụ</h3>
 <ul>
-<li><b>Audio 1-16 / Audio 17-32 / Playlist</b>: chuyển trang ({K('Ctrl', '1')} {K('Ctrl', '2')} {K('Ctrl', '3')}).</li>
+<li><b>Audio 1-16 / Audio 17-32 / Playlist / Âm thanh</b>: chuyển trang ({K('Ctrl', '1')} … {K('Ctrl', '4')}).
+Trang Âm thanh dùng để đo tần số, chỉnh micro và chống hú.</li>
 <li><b>Dự án mới, Mở, Lưu</b>: quản lý file dự án <code>.evp</code>.</li>
 <li><b>Tùy chọn, Phím tắt, Hướng dẫn</b>: cài đặt chung, bảng phím tắt và trang này ({K('F1')}).</li>
 <li><b>Sáng / Tối</b>: đổi giao diện.</li>
@@ -226,6 +227,106 @@ Phím {K('Space')}, {K('Esc')}, {K('↑')} {K('↓')} cũng dùng được khi �
 "Còn 2 phút"). Bấm <b>Xóa</b> để tắt lời nhắn.</li>
 </ul>
 """),
+    ("Bảng chỉnh bài", "Dạng sóng, BPM, CUE, cắt IN / OUT, LOOP, nghe trước", f"""
+<p>Bảng phía trên lưới kênh (trang Audio 1-16 / 17-32) hiện <b>kênh đang chọn</b> &mdash; kênh có viền xanh.
+Bấm vào một kênh để chọn; kênh vừa phát cũng tự được chọn. Bấm <b>▾</b> ở góc trái để thu gọn bảng khi cần
+nhiều chỗ cho các kênh.</p>
+<h3>Dạng sóng</h3>
+<ul>
+<li>Phần đã phát tô màu (màu kênh, hoặc cam), phần chưa phát màu xám; vạch trắng là đầu phát.</li>
+<li><b>Lăn chuột</b>: phóng to / thu nhỏ quanh con trỏ · <b>Shift + lăn</b>: kéo ngang · <b>Bấm</b>: tua tới đó
+(khi đang dừng: đặt điểm sẽ phát) · <b>Kéo</b>: chọn một đoạn.</li>
+<li>Rê chuột tới chỗ cần rồi bấm phím {K('I')} / {K('O')} để đặt IN / OUT; kéo tay cầm <b>IN</b> (xanh) /
+<b>OUT</b> (đỏ) để tinh chỉnh. Chuột phải: menu nhanh (phát từ đây, nghe trước, đặt IN/OUT, CUE, A/B).</li>
+<li><b>1 sóng / 2 sóng</b>: thêm dải tổng quan cả bài phía trên; bấm / kéo trên dải này để dời khung xem.</li>
+</ul>
+<h3>Thời gian và BPM</h3>
+<p><b>ĐÃ CHẠY / CÒN LẠI / TỔNG</b> tính theo cả file. <b>BPM</b> được tự dò từ bài; kéo thanh trượt để chỉnh tay,
+bấm <i>Dùng tự động</i> để quay lại BPM tự dò.</p>
+<h3>Soi nhịp</h3>
+<p>Nút <b>Soi nhịp</b> (góc phải trên sóng) mở cửa sổ phân tích chi tiết bài của kênh đang chọn:</p>
+<ul>
+<li><b>Nhạc cụ</b>: Kick, Snare, Clap, Hi-hat, Bass, Giọng hát &mdash; mỗi loại một dải màu bên dưới sóng, kèm số lần xuất hiện.
+Bấm các nút màu để ẩn / hiện từng loại.</li>
+<li><b>Phách, Ô nhịp</b> (đánh số 1, 2, 3...), <b>Đoạn</b> (INTRO / BUILD / DROP / BREAK / OUTRO) và
+<b>◆ Điểm Drop</b> (tam giác đỏ).</li>
+<li>Bấm sóng = tua · chuột phải kéo = chọn vùng (rồi <i>Loop vùng chọn</i>) · lăn chuột = phóng to ·
+<b>bấm tam giác Drop = đặt IN ngay tại điểm Drop</b> · bấm một điểm nhạc cụ = tua tới đó và phát ·
+bấm <b>Hot Cue</b> = nhảy tới và phát.</li>
+<li>Các nút CUE / CẮT / LOOP giống bảng chỉnh bài; mọi thay đổi đồng bộ hai bên.</li>
+</ul>
+<p>Lần đầu soi một bài mất vài giây để phân tích; kết quả được lưu lại nên lần sau mở ngay.
+Nhận diện dựa trên dải tần và nhịp gõ (không tách nhạc bằng AI): Kick, Snare, Hi-hat, phách, ô nhịp, điểm Drop
+khá tin cậy với nhạc có trống; <b>Clap và Giọng hát chỉ là ước lượng</b>.</p>
+<h3>Các nút</h3>
+<table cellspacing='0' cellpadding='7' width='100%'>
+<tr><th>Nhóm</th><th>Công dụng</th></tr>
+<tr><td><b>⏮ ▶ ■</b></td><td>Về điểm IN · phát / tạm dừng (phát từ điểm đã bấm trên sóng) · dừng.</td></tr>
+<tr><td><b>CUE</b></td><td><i>+ Cue</i> lưu vị trí hiện tại (tối đa 9). Bấm điểm CUE để nhảy tới; chuột phải để xóa.</td></tr>
+<tr><td><b>CẮT</b></td><td><i>IN / OUT</i> đặt điểm bắt đầu / kết thúc phát tại vị trí hiện tại; <i>✕</i> bỏ cắt.
+Đây chính là <i>Đoạn phát</i> trong Cài đặt kênh.</td></tr>
+<tr><td><b>LOOP</b></td><td><i>A / B</i> đặt vùng lặp; <i>⟳</i> bật / tắt lặp; <i>1s 2s 4s 8s</i> lặp ngay từ vị trí hiện tại;
+<i>Loop vùng chọn</i> lặp đoạn vừa kéo chọn; <i>✕</i> bỏ lặp. Vùng lặp tô tím trên sóng.</td></tr>
+<tr><td><b>ZOOM</b></td><td><i>− / +</i> thu / phóng, <i>Toàn bài</i> xem cả bài. Khi đang phát, khung xem tự chạy theo đầu phát.</td></tr>
+<tr><td><b>🎧 Nghe trước</b></td><td>Nghe từ vị trí hiện tại ra <b>tai nghe</b> (chọn trong Tùy chọn) mà không phát ra loa.</td></tr>
+</table>
+<p>CUE, vùng lặp và BPM chỉnh tay được lưu cùng dự án.</p>
+{tip("Dùng loop 4s / 8s để kéo dài đoạn nhạc nền khi MC nói lâu hơn dự kiến; bấm ⟳ để tắt lặp, nhạc chạy tiếp tự nhiên.", "pro")}
+"""),
+    ("Âm thanh: đo tần số, micro, chống hú", "RTA, mức micro, phát hiện hú, ring-out, đo phòng, tone", f"""
+<p>Trang <b>Âm thanh</b> ({K('Ctrl', '4')}) giúp chỉnh hệ thống loa / micro trước và trong sự kiện.
+Máy tính <b>nghe</b> qua một nguồn vào để phân tích, rồi chỉ cho bạn cần chỉnh gì trên <b>mixer</b>;
+phần mềm không tự lọc tiếng micro sân khấu (vì tiếng micro đi qua mixer, không qua máy tính).</p>
+<h3>Nối dây</h3>
+<ul>
+<li><b>Micro đo</b> (micro đo chuyên dụng hoặc micro thường) cắm vào máy tính, đặt ở vị trí khán giả; hoặc</li>
+<li>Cổng <b>line-in</b> của máy tính nhận tín hiệu từ ngõ ra phụ (AUX / REC OUT) của mixer.</li>
+<li>Chọn nguồn đó ở ô <i>Nguồn vào</i> rồi bấm <b>▶ Bắt đầu đo</b>.</li>
+</ul>
+{tip("Tắt các hiệu ứng 'Khử tiếng ồn', 'Tăng âm micro' của Windows / Realtek cho micro đo "
+     "(Cài đặt âm thanh &rarr; Thuộc tính thiết bị) để kết quả đo chính xác.", "warn")}
+<h3>Biểu đồ tần số (RTA)</h3>
+<p>Cột = mức của 31 dải 1/3 octave (20 Hz – 20 kHz, giống EQ 31 băng trên mixer); đường xanh = FFT chi tiết;
+vạch ngang = đỉnh giữ lại. <i>Tốc độ</i> Nhanh để xem tức thời, Chậm để xem trung bình. Tam giác cam phía trên
+là các tần số dễ hú đã tìm được bằng ring-out.</p>
+<h3>Mức micro</h3>
+<p>Đồng hồ ngang hiện RMS (thanh màu), đỉnh (vạch) và đỉnh giữ 3 giây. Cho người nói / hát ở <b>mức thật</b>,
+rồi chỉnh gain trên mixer theo gợi ý:</p>
+<table cellspacing='0' cellpadding='7' width='100%'>
+<tr><th>Đỉnh 3 giây</th><th>Đánh giá</th></tr>
+<tr><td>từ −1 dBFS trở lên</td><td><span style='color:{T["danger"]}'><b>Vỡ tiếng</b></span> — giảm gain ngay</td></tr>
+<tr><td>−6 … −1 dBFS</td><td><span style='color:{T["warn"]}'><b>Hơi to</b></span> — giảm bớt để chừa khoảng an toàn</td></tr>
+<tr><td>−24 … −6 dBFS</td><td><span style='color:{T["ok"]}'><b>Tốt</b></span></td></tr>
+<tr><td>dưới −24 dBFS</td><td><span style='color:{T["warn"]}'><b>Nhỏ</b></span> — tăng gain</td></tr>
+</table>
+<h3>Chống hú (phát hiện hú)</h3>
+<p>Phần mềm tìm tần số <b>nhọn, nổi hẳn so với xung quanh, đứng yên và kéo dài</b> — dấu hiệu của tiếng hú.
+Khi phát hiện: ô báo chuyển đỏ <b>⚠ HÚ 2,51 kHz</b>, vạch đỏ trên biểu đồ, kèm gợi ý
+(ví dụ <i>Cắt −9 dB, Q hẹp · EQ 31 băng: 2,5k</i>). Đang ở trang khác thì tab <b>Âm thanh</b> chuyển đỏ và thanh
+trạng thái báo tần số.</p>
+<ul>
+<li><b>Xử lý nhanh khi đang diễn:</b> hạ fader micro 3–6 dB ngay, rồi cắt tần số được báo trên EQ của kênh micro hoặc EQ tổng.</li>
+<li><b>Độ nhạy:</b> Cao = báo sớm (dễ báo nhầm khi nhạc có nốt ngân dài); Thấp = chỉ báo khi hú rõ.
+Khi đang phát nhạc, nên để Vừa hoặc Thấp.</li>
+</ul>
+<h3>Ring-out (trước giờ diễn)</h3>
+<ol>
+<li>Phòng yên lặng, không phát nhạc. Đặt micro sân khấu đúng chỗ người dùng sẽ đứng.</li>
+<li>Bấm <b>● Bắt đầu ring-out</b>, tăng từ từ fader micro trên mixer.</li>
+<li>Mỗi lần bắt đầu hú, phần mềm kêu "bíp" và ghi tần số vào danh sách &rarr; cắt tần số đó trên EQ, rồi tăng tiếp.</li>
+<li>Đạt mức to mong muốn thì hạ fader 3–6 dB để có khoảng an toàn. Danh sách được lưu lại; <i>Sao chép danh sách</i> để dán / in.</li>
+</ol>
+<h3>Đo phòng bằng pink noise</h3>
+<p>Chọn <i>Loa phát thử / đo</i>, đặt micro đo ở chỗ khán giả, bấm <b>▶ Bắt đầu đo phòng</b>. Phần mềm đo tiếng ồn nền
+2 giây, phát pink noise và đo trong số giây đã chọn, rồi vẽ độ lệch từng dải: <span style='color:{T["danger"]}'>đỏ = dư
+(nên cắt)</span>, <span style='color:{T["accent"]}'>xanh dương = thiếu</span>, xám = quá gần tiếng ồn nên bỏ qua.
+Ưu tiên <b>cắt</b> chỗ dư; chỗ thiếu chỉ tăng tối đa +3 dB.</p>
+<h3>Phát tone thử loa</h3>
+<p>Sóng sin (một tần số, có nút chọn nhanh 63 Hz … 16 kHz), quét tần số từ thấp lên cao (nghe tiếng rè / lạch cạch
+của loa, đồ vật cộng hưởng), pink noise hoặc white noise. Luôn bắt đầu ở mức nhỏ; <b>Dừng hết</b> / {K('Esc')}
+cũng tắt tone.</p>
+{tip("Tone liên tục ở mức lớn, nhất là tần số cao, có thể làm hỏng loa treble (tweeter).", "warn")}
+"""),
     ("Khóa cài đặt khi diễn", "Chống bấm nhầm", f"""
 <p>Khi bật <b>Khóa cài đặt</b>, mọi bàn phím và chuột trên vùng kênh, Playlist, GO, Master đều bị chặn;
 nhạc đang phát <b>vẫn tiếp tục</b>. Các nút trên Long View cũng bị khóa (riêng ô lời nhắn vẫn dùng được).</p>
@@ -247,7 +348,8 @@ nhạc đang phát <b>vẫn tiếp tục</b>. Các nút trên Long View cũng b�
         ("Dừng các kênh (Playlist vẫn phát)", "chưa gán")])}
 <h3>Phím cố định</h3>
 {table([("Hướng dẫn", K('F1')),
-        ("Chuyển trang Audio 1-16 / 17-32 / Playlist", K('Ctrl', '1') + " " + K('Ctrl', '2') + " " + K('Ctrl', '3')),
+        ("Chuyển trang Audio 1-16 / 17-32 / Playlist / Âm thanh",
+         K('Ctrl', '1') + " " + K('Ctrl', '2') + " " + K('Ctrl', '3') + " " + K('Ctrl', '4')),
         ("Dự án mới / Mở / Lưu / Lưu thành", K('Ctrl', 'N') + " " + K('Ctrl', 'O') + " " + K('Ctrl', 'S') + " " + K('Ctrl', 'Shift', 'S')),
         ("Playlist: bài tiếp / bài trước", K('Ctrl', '→') + " / " + K('Ctrl', '←')),
         ("Playlist: đặt bài kế tiếp / nghe thử", K('Ctrl', 'E') + " / " + K('Ctrl', 'L')),

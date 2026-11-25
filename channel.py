@@ -1,7 +1,7 @@
 """Một kênh phát (channel strip): fader, VU, thời gian, nút cart, điều khiển."""
 import os
 
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtWidgets import (QFileDialog, QFrame, QHBoxLayout, QLabel, QMenu, QPushButton,
                                QToolButton, QVBoxLayout, QWidget)
 
@@ -37,6 +37,7 @@ class ChannelStrip(QWidget):
     started = Signal(object)    # kênh vừa bắt đầu phát (cho chế độ Phát đơn)
     changed = Signal()          # cấu hình kênh thay đổi (đánh dấu dự án chưa lưu)
     message = Signal(str)
+    selectRequested = Signal(object)   # bấm vào kênh -> hiện trên bảng chỉnh bài
 
     def __init__(self, number, hotkey, host, parent=None):
         super().__init__(parent)
@@ -54,6 +55,13 @@ class ChannelStrip(QWidget):
         self.end_ms = 0             # đoạn phát: điểm kết thúc (0 = cuối file)
         self.duration = 0
         self.own_key = ""           # "" = theo phím ô của trang, "-" = không phím, khác = phím riêng
+        self.cues = []              # điểm CUE (ms)
+        self.loop_a = self.loop_b = 0   # vùng loop A-B (ms); loop_b = 0 -> chưa đặt
+        self.ab_on = False          # đang lặp vùng A-B
+        self.bpm = 0.0              # BPM chỉnh tay (0 = dùng BPM tự dò)
+        self.bpm_auto = 0.0         # BPM tự dò từ dạng sóng (không lưu)
+        self.selected = False
+        self._ab_jump = False
         self._end_fading = False
         self._last_times = None
         self.last_levels = [0.0, 0.0]
@@ -170,6 +178,19 @@ class ChannelStrip(QWidget):
         self.btn_file.setIcon(glyph_icon(FILE_GLYPH, T["text_dim"]))
         self.refresh()
 
+    def mousePressEvent(self, e):
+        self.selectRequested.emit(self)
+        super().mousePressEvent(e)
+
+    def set_selected(self, on):
+        self.selected = on
+        self.frame.setProperty("selected", on)
+        self.frame.style().unpolish(self.frame)
+        self.frame.style().polish(self.frame)
+
+    def ab_valid(self):
+        return self.loop_b > self.loop_a + 20
+
     # ================= thông tin =================
     def display_name(self):
         return self.name or os.path.splitext(os.path.basename(self.path))[0]
@@ -237,6 +258,13 @@ class ChannelStrip(QWidget):
             return
         pos = self.deck.position()
         end = self.seg_end()
+        if self.ab_on and self.ab_valid() and self.deck.is_playing() and not self.deck._pending:
+            if pos >= self.loop_b - 5 or pos < self.loop_a - 200:
+                self._ab_seek()
+                pos = self.loop_a
+            elif self.loop_b - pos < 80 and not self._ab_jump:     # hẹn giờ nhảy đúng điểm B
+                self._ab_jump = True
+                QTimer.singleShot(max(0, self.loop_b - pos - 3), self._ab_seek)
         if self.deck.is_playing() and not self.deck._pending and end:
             if self.end_ms and pos >= end - 10:            # tới điểm kết thúc tự đặt
                 if self.loop:
@@ -258,6 +286,12 @@ class ChannelStrip(QWidget):
         if not self.seek.isSliderDown():
             self.seek.setRange(self.start_ms, max(self.start_ms + 1, end))
             self.seek.setValue(pos)
+
+    def _ab_seek(self):
+        self._ab_jump = False
+        if self.ab_on and self.ab_valid() and (self.deck.is_playing() or self.deck.is_paused()):
+            self.deck.player.setPosition(self.loop_a)
+            self._end_fading = False
 
     def on_fader(self, val, emit=True):
         self.deck.set_master(val / 100)
@@ -308,6 +342,24 @@ class ChannelStrip(QWidget):
         self.deck.player.setLoops(-1 if (self.loop and not self.manual_loop()) else 1)
         self._end_fading = False
         self.deck.play_from(self.start_ms, int(self.fade_in_s * 1000))
+        self.started.emit(self)
+
+    def play_from(self, ms):
+        """Phát (hoặc tua tới) vị trí ms — dùng cho bảng chỉnh bài, CUE."""
+        if not self.path:
+            return
+        if self.deck.is_playing() or self.deck.is_paused():
+            self.seek_to(ms)
+            if self.deck.is_paused():
+                self.deck.play(self.host.cfg["pause_fade_ms"])
+            return
+        if not os.path.isfile(self.path):
+            self.message.emit(f"Kênh {self.number}: không tìm thấy file {self.path}")
+            return
+        self.deck.load(self.path)
+        self.deck.player.setLoops(-1 if (self.loop and not self.manual_loop()) else 1)
+        self._end_fading = False
+        self.deck.play_from(max(0, int(ms)), int(self.fade_in_s * 1000) if ms <= self.start_ms else 0)
         self.started.emit(self)
 
     def on_ended(self):
@@ -371,6 +423,7 @@ class ChannelStrip(QWidget):
         self.name = os.path.splitext(os.path.basename(path))[0]
         self.duration = read_meta(path)[2]
         self.start_ms = self.end_ms = 0
+        self.cues, self.loop_a, self.loop_b, self.ab_on, self.bpm, self.bpm_auto = [], 0, 0, False, 0.0, 0.0
         prefetch(path)
         if was_empty:                          # kênh trống: áp dụng mặc định (*)
             d = self.host.channel_defaults()
@@ -413,6 +466,7 @@ class ChannelStrip(QWidget):
         self.path = self.name = self.color = ""
         self.loop = False
         self.start_ms = self.end_ms = 0
+        self.cues, self.loop_a, self.loop_b, self.ab_on, self.bpm, self.bpm_auto = [], 0, 0, False, 0.0, 0.0
         self.duration = 0
         self.refresh()
         self.changed.emit()
@@ -422,7 +476,9 @@ class ChannelStrip(QWidget):
                 "mode": self.mode, "fade_in_s": self.fade_in_s, "fade_out_s": self.fade_out_s,
                 "start_ms": self.start_ms, "end_ms": self.end_ms,
                 "volume": self.fader.value(), "device": self.device,
-                "duration": self.duration, "key": self.own_key}
+                "duration": self.duration, "key": self.own_key,
+                "cues": list(self.cues), "loop_a": self.loop_a, "loop_b": self.loop_b, "ab_on": self.ab_on,
+                "bpm": self.bpm}
 
     def from_dict(self, d):
         self.deck.stop()
@@ -438,6 +494,10 @@ class ChannelStrip(QWidget):
         self.end_ms = int(d.get("end_ms", 0))
         self.device = d.get("device", "")
         self.own_key = d.get("key", "")
+        self.cues = sorted(int(x) for x in d.get("cues", []))
+        self.loop_a, self.loop_b = int(d.get("loop_a", 0)), int(d.get("loop_b", 0))
+        self.ab_on = bool(d.get("ab_on", False))
+        self.bpm, self.bpm_auto = float(d.get("bpm", 0.0)), 0.0
         self.duration = int(d.get("duration", 0))
         if self.path and not self.duration and os.path.isfile(self.path):
             self.duration = read_meta(self.path)[2]

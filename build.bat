@@ -2,7 +2,7 @@
 REM Dong goi Starkid Event Player thanh file chay .exe
 REM Dong goi vao thu muc "stage" truoc, roi moi chep sang "release" (khong dung vao ban dang mo)
 cd /d "%~dp0"
-python -m pip install --user pyinstaller PySide6 mutagen av pillow
+python -m pip install --user pyinstaller PySide6 mutagen av pillow numpy
 python -m PyInstaller --noconfirm --windowed --name StarkidEventPlayer --icon assets\app.ico ^
   --add-data "assets;assets" --collect-binaries av --distpath stage ^
   --exclude-module PySide6.QtWebEngineCore --exclude-module PySide6.QtWebEngineWidgets ^

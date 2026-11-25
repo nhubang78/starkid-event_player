@@ -271,6 +271,45 @@ QTabBar::tab {{ background:transparent; color:{text_dim}; padding:6px 14px; marg
 QTabBar::tab:hover {{ color:{text}; }}
 QTabBar::tab:selected {{ color:{text}; border-bottom:2px solid {accent}; font-weight:600; }}
 
+/* ---------- bảng chỉnh bài ---------- */
+QFrame#deckEditor {{ background:{surface}; border:1px solid {border}; border-radius:12px; }}
+QFrame#deckEditor QLabel {{ background:transparent; }}
+QLabel#deTitle {{ font-size:13pt; font-weight:700; color:{text}; }}
+QLabel#deSub {{ color:{text_dim}; font-size:9pt; }}
+QLabel#deCap {{ color:{text_dim}; font-size:7.5pt; font-weight:700; letter-spacing:1px; }}
+QLabel#deTime {{ font-family:Consolas; font-size:17pt; font-weight:700; color:{text}; }}
+QLabel#deTime[kind="remain"] {{ color:{warn}; }}
+QLabel#deBpm {{ font-family:Consolas; font-size:14pt; font-weight:700; color:{warn}; }}
+QLabel#deZoom {{ font-family:Consolas; font-weight:700; color:{warn}; padding:0 4px; }}
+QLabel#deHint {{ color:{text_faint}; font-size:8pt; }}
+QToolButton#deFold {{ border:none; background:transparent; color:{text_dim}; font-size:12pt; padding:0 4px; }}
+QToolButton#deFold:hover {{ color:{text}; }}
+QToolButton#deLink {{ border:none; background:transparent; color:{accent_text}; text-decoration:underline; }}
+QPushButton#deBtn, QPushButton#dePlay {{ padding:4px 9px; min-height:22px; border-radius:7px; }}
+QPushButton#deBtn:checked {{ background:{accent}; border-color:{accent}; color:white; }}
+QPushButton#dePlay[on="true"] {{ background:{warn}; border-color:{warn}; }}
+QPushButton#deCue {{ padding:3px 9px; min-height:20px; border-radius:7px; background:{surface2};
+    font-family:Consolas; border:1px solid {ok}; color:{text}; }}
+QPushButton#deCue:hover {{ background:{ok_soft}; }}
+QPushButton#deGrid {{ padding:2px 10px; min-height:16px; border-radius:6px; font-size:8.5pt; font-weight:700;
+    background:{wave_bg}; color:{warn}; border:1px solid {warn}; }}
+QPushButton#deGrid:checked {{ background:{warn}; color:#1a1202; }}
+QWidget#beatScope {{ background:{bg}; }}
+QFrame#strip[selected="true"] {{ border:2px solid {accent}; }}
+
+/* ---------- âm thanh (đo, chống hú) ---------- */
+QFrame#scCard {{ background:{surface}; border:1px solid {border}; border-radius:10px; }}
+QFrame#scCard QLabel {{ background:transparent; }}
+QLabel#scValue {{ font-family:Consolas; font-size:10pt; color:{text}; }}
+QLabel#scStatus {{ font-size:13pt; font-weight:700; color:{text_dim}; }}
+QLabel#scStatus[state="ok"] {{ color:{ok}; }}
+QLabel#scStatus[state="warn"] {{ color:{warn}; }}
+QLabel#scStatus[state="bad"] {{ color:{danger}; }}
+QLabel#scStatus[state="idle"] {{ color:{text_faint}; }}
+QLabel#scAlert {{ background:{surface2}; color:{text_dim}; border-radius:8px; padding:8px; font-weight:700; }}
+QLabel#scAlert[on="true"] {{ background:{danger}; color:white; font-size:13pt; }}
+QToolButton#pageTab[alert="true"] {{ background:{danger}; color:white; }}
+
 /* ---------- hướng dẫn ---------- */
 QListWidget#guideNav {{ background:{surface}; border:1px solid {border}; border-radius:10px; padding:6px;
     outline:0; font-size:10pt; }}

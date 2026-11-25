@@ -20,6 +20,8 @@ from playlist_page import PlaylistPage
 from channel_dialog import ChannelSettingsDialog
 from guide import GuideDialog
 from longview import LongView
+from soundcheck import SoundCheckPage
+from deck_editor import DeckEditor
 from shortcuts import DEFAULT_KEYS, NAV_KEYS, ShortcutDialog
 from shortcuts import LABELS as SHORTCUT_LABELS
 from widgets import Fader, VUMeter, glyph_icon, key_label, shape_icon
@@ -266,7 +268,7 @@ class MainWindow(QMainWindow):
 
         self.pg_buttons = []
         for i, (text, code) in enumerate((("Audio 1-16", "\uEC4F"), ("Audio 17-32", "\uEC4F"),
-                                          ("Playlist", "\uE8FD"))):
+                                          ("Playlist", "\uE8FD"), ("Âm thanh", "\uE9E9"))):
             b = tool(text, ("glyph", code), checkable=True, tip=f"{text} (Ctrl+{i + 1})", name="pageTab")
             self.page_group.addButton(b, i)
             self.pg_buttons.append(b)
@@ -328,6 +330,8 @@ class MainWindow(QMainWindow):
                 s.started.connect(self.on_strip_started)
                 s.changed.connect(self.mark_dirty)
                 s.message.connect(lambda m: self.statusBar().showMessage(m, 6000))
+                s.selectRequested.connect(self.select_strip)
+                s.changed.connect(lambda s=s: self.deck_editor.strip_changed(s))
                 self.strips.append(s)
                 grid.addWidget(s, k // 8, k % 8)
             for c in range(8):
@@ -336,12 +340,23 @@ class MainWindow(QMainWindow):
         self.playlist = PlaylistPage(self)
         self.playlist.changed.connect(self.mark_dirty)
         self.stack.addWidget(self.playlist)
+        self.soundcheck = SoundCheckPage(self)
+        self.soundcheck.feedbackAlert.connect(self.on_feedback_alert)
+        self.stack.addWidget(self.soundcheck)
         # khung cuộn: cửa sổ nhỏ hơn lưới kênh thì hiện thanh cuộn thay vì đòi màn hình rộng hơn
         self.body_scroll = QScrollArea()
         self.body_scroll.setObjectName("bodyScroll")
         self.body_scroll.setWidgetResizable(True)
         self.body_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        self.body_scroll.setWidget(self.stack)
+        # bảng chỉnh bài (trên lưới kênh) + các trang
+        self.deck_editor = DeckEditor(self)
+        page_area = QWidget()
+        pv = QVBoxLayout(page_area)
+        pv.setContentsMargins(0, 0, 0, 0)
+        pv.setSpacing(10)
+        pv.addWidget(self.deck_editor)
+        pv.addWidget(self.stack, 1)
+        self.body_scroll.setWidget(page_area)
         self.body_scroll.viewport().setAutoFillBackground(False)
         body.addWidget(self.body_scroll, 1)
 
@@ -415,7 +430,7 @@ class MainWindow(QMainWindow):
         m.addSeparator()
         m.addAction("Playlist: đánh dấu tất cả là chưa phát", self.playlist.reset_played)
         m = mb.addMenu("Hiển thị")
-        for i, t in enumerate(("Audio 1-16", "Audio 17-32", "Playlist")):
+        for i, t in enumerate(("Audio 1-16", "Audio 17-32", "Playlist", "Âm thanh (đo, chống hú)")):
             m.addAction(t, lambda i=i: self.show_page(i), QKeySequence(f"Ctrl+{i + 1}"))
         m.addSeparator()
         m.addAction("Long View", self.toggle_long_view)
@@ -483,7 +498,7 @@ class MainWindow(QMainWindow):
         self._shortcuts.append((sc, seq))
 
     def update_shortcut_enabled(self):
-        on_playlist = self.stack.currentIndex() == 2
+        on_playlist = self.stack.currentIndex() >= 2     # Playlist / Âm thanh: phím mũi tên dành cho trang
         for sc, seq in self._shortcuts:
             sc.setEnabled(not self.locked and not (on_playlist and seq in NAV_KEYS))
         for sc in self._fixed:
@@ -590,8 +605,13 @@ class MainWindow(QMainWindow):
         self.update_go()
 
     # ================= TRANG / CHẾ ĐỘ =================
+    def select_strip(self, strip):
+        if not self.locked:
+            self.deck_editor.set_strip(strip)
+
     def show_page(self, i):
         self.stack.setCurrentIndex(i)
+        self.deck_editor.setVisible(i < 2)
         self.pg_buttons[i].setChecked(True)
         if i < 2:
             self.last_cart_page = i
@@ -669,9 +689,20 @@ class MainWindow(QMainWindow):
         for s in self.strips:
             s.retheme()
         self.playlist.retheme()
+        self.soundcheck.retheme()
+        self.deck_editor.retheme()
         self.master_meter.update()
         self.settings.setValue("theme", theme.current())
         set_dark_titlebar(self)
+
+    def on_feedback_alert(self, text):
+        """Báo hú cả khi đang ở trang khác: tab Âm thanh đỏ + thanh trạng thái."""
+        b = self.pg_buttons[3]
+        b.setProperty("alert", bool(text))
+        b.style().unpolish(b)
+        b.style().polish(b)
+        if text:
+            self.statusBar().showMessage(text + "  — xem trang Âm thanh để biết cần cắt EQ ở đâu", 4000)
 
     def stop_others(self, keep=None, stop_playlist=True):
         """Phát đơn: dừng mọi kênh khác (đang phát hoặc tạm dừng)."""
@@ -685,6 +716,7 @@ class MainWindow(QMainWindow):
 
     def on_strip_started(self, strip):
         self.last_started = strip
+        self.deck_editor.set_strip(strip)
         if self.single:
             self.stop_others(keep=strip)
 
@@ -725,6 +757,7 @@ class MainWindow(QMainWindow):
         m.exec(self.btn_go.mapToGlobal(pos))
 
     def stop_all(self):
+        self.soundcheck.stop_output()
         decks = [s.deck for s in self.strips] + self.playlist.decks
         if any(d.fading_out() for d in decks):
             self.panic()
@@ -735,6 +768,7 @@ class MainWindow(QMainWindow):
             self.playlist.stop_main(500)
 
     def panic(self):
+        self.soundcheck.out.stop_now()
         for s in self.strips:
             s.stop()
         for d in self.playlist.decks:
@@ -835,6 +869,7 @@ class MainWindow(QMainWindow):
         sys_amp = percent_to_amp(self._sys_level) if self._sys_level is not None else 1.0
         if self.sysvol.muted():
             sys_amp = 0.0
+        self.deck_editor.tick()
         self.master_meter.set_levels([min(1.0, power[0] ** 0.5 * sys_amp), min(1.0, power[1] ** 0.5 * sys_amp)])
         if self.long_view and self.long_view.isVisible() and self._ticks % 2 == 0:
             self.long_view.refresh(self.cfg["warn_sec"] * 1000)
@@ -870,6 +905,8 @@ class MainWindow(QMainWindow):
             self._loading = False
         self.update_go()
         self.apply_shortcuts()
+        self.deck_editor.set_strip(self.deck_editor.strip or self.strips[0])
+        self.deck_editor.load_wave()
 
     def confirm_discard(self):
         if not self.dirty:
@@ -1017,7 +1054,7 @@ class MainWindow(QMainWindow):
     def update_compact(self):
         """Cửa sổ hẹp: nút thanh công cụ chỉ còn biểu tượng (tên hiện khi rê chuột), ẩn logo."""
         w = self.width()
-        mode = 0 if w >= 1300 else 1 if w >= 1080 else 2
+        mode = 0 if w >= 1480 else 1 if w >= 1080 else 2
         if mode == self._compact:
             return
         self._compact = mode
@@ -1038,6 +1075,7 @@ class MainWindow(QMainWindow):
             e.ignore()
             return
         self.write_autosave()
+        self.soundcheck.shutdown()
         self.settings.setValue("geometry", self.saveGeometry())
         if self.long_view:
             self.long_view.close()
